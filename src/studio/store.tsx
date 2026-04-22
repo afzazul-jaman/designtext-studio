@@ -7,6 +7,7 @@ import {
   CANVAS_PRESETS,
   BackgroundOverlay,
   GeneratedPage,
+  PageSnapshot,
 } from "./types";
 
 type StudioState = {
@@ -64,7 +65,11 @@ type StudioContextValue = StudioState & {
   addGeneratedPage: (page: GeneratedPage) => void;
   removeGeneratedPage: (id: string) => void;
   duplicateGeneratedPage: (id: string) => void;
+  updateGeneratedPage: (id: string, updates: Partial<GeneratedPage>) => void;
   setActivePage: (id: string | null) => void;
+  loadPageIntoEditor: (id: string) => void;
+  getEditorSnapshot: () => PageSnapshot;
+  insertTextIntoActiveLayer: (insert: string) => void;
   clearGenerated: () => void;
 };
 
