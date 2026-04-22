@@ -238,6 +238,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const removeGeneratedPage = useCallback((id: string) => {
     setGenerated((prev) => prev.filter((p) => p.id !== id));
+    setActivePageId((cur) => (cur === id ? null : cur));
   }, []);
 
   const duplicateGeneratedPage = useCallback((id: string) => {
@@ -248,6 +249,72 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       const next = [...prev];
       next.splice(idx + 1, 0, copy);
       return next;
+    });
+  }, []);
+
+  const updateGeneratedPage = useCallback((id: string, updates: Partial<GeneratedPage>) => {
+    setGenerated((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+  }, []);
+
+  const getEditorSnapshot = useCallback((): PageSnapshot => ({
+    layers: layers.map((l) => ({ ...l, effects: { ...l.effects } })),
+    imageId: activeImageId,
+    bgMode,
+    bgColor,
+    gradientFrom,
+    gradientTo,
+    overlay,
+  }), [layers, activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay]);
+
+  const loadPageIntoEditor = useCallback((id: string) => {
+    setGenerated((prev) => {
+      const page = prev.find((p) => p.id === id);
+      if (!page) return prev;
+      const s = page.snapshot;
+      setLayers(s.layers.map((l) => ({ ...l, effects: { ...l.effects } })));
+      setActiveImageId(s.imageId);
+      setBgMode(s.bgMode);
+      setBgColor(s.bgColor);
+      setGradientFrom(s.gradientFrom);
+      setGradientTo(s.gradientTo);
+      setOverlay(s.overlay);
+      setActiveLayerId(s.layers[0]?.id ?? null);
+      return prev;
+    });
+    setActivePageId(id);
+  }, []);
+
+  const insertTextIntoActiveLayer = useCallback((insert: string) => {
+    setActiveLayerId((curId) => {
+      if (!curId) {
+        // create a new layer with this text
+        const id = newId("layer");
+        const layer: TextLayer = {
+          id,
+          text: insert,
+          fontFamily: "Inter",
+          fontSize: 64,
+          fill: "#ffffff",
+          fontWeight: "bold",
+          fontStyle: "normal",
+          textAlign: "center",
+          left: 540,
+          top: 540,
+          width: 800,
+          opacity: 1,
+          lineHeight: 1.2,
+          charSpacing: 0,
+          effects: { shadow: true, stroke: false, glow: false, gradient: false },
+          strokeColor: "#000000",
+          strokeWidth: 2,
+        };
+        setLayers((prev) => [...prev, layer]);
+        return id;
+      }
+      setLayers((prev) =>
+        prev.map((l) => (l.id === curId ? { ...l, text: l.text ? `${l.text} ${insert}` : insert } : l))
+      );
+      return curId;
     });
   }, []);
 
