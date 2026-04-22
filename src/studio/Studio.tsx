@@ -199,7 +199,7 @@ function StudioInner() {
               <div className="h-full gradient-primary transition-all" style={{ width: `${progress}%` }} />
             </div>
           )}
-          <PagesStrip onAddPage={handleAddCurrent} />
+          <PagesStrip onAddPage={handleAddCurrent} onRerender={handleRerenderActive} />
         </div>
         <RightPanel />
       </div>
