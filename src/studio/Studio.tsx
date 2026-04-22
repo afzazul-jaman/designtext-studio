@@ -58,10 +58,28 @@ function StudioInner() {
     }
     const url = await renderToDataURL(buildOptions(), 1);
     const thumb = await renderThumbnail(url);
-    const page: GeneratedPage = { id: `page_${Date.now()}`, rowIndex: null, thumbnail: thumb, fullDataUrl: url };
+    const page: GeneratedPage = {
+      id: `page_${Date.now()}`,
+      rowIndex: null,
+      thumbnail: thumb,
+      fullDataUrl: url,
+      snapshot: studio.getEditorSnapshot(),
+    };
     studio.addGeneratedPage(page);
     studio.setActivePage(page.id);
     toast.success("Page added");
+  };
+
+  const handleRerenderActive = async () => {
+    if (!studio.activePageId) return;
+    const url = await renderToDataURL(buildOptions(), 1);
+    const thumb = await renderThumbnail(url);
+    studio.updateGeneratedPage(studio.activePageId, {
+      fullDataUrl: url,
+      thumbnail: thumb,
+      snapshot: studio.getEditorSnapshot(),
+    });
+    toast.success("Page updated");
   };
 
   const handleGenerate = async () => {
@@ -114,6 +132,15 @@ function StudioInner() {
           thumbnail: thumb,
           fullDataUrl: url,
           rowData: row,
+          snapshot: {
+            layers: substituted.map((l) => ({ ...l, effects: { ...l.effects } })),
+            imageId: imgs.length > 0 ? imgs[i % imgs.length].id : studio.activeImageId,
+            bgMode: studio.bgMode,
+            bgColor: studio.bgColor,
+            gradientFrom: studio.gradientFrom,
+            gradientTo: studio.gradientTo,
+            overlay: studio.overlay,
+          },
         };
         newPages.push(page);
         studio.addGeneratedPage(page);
