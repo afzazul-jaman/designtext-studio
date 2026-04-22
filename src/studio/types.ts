@@ -52,12 +52,23 @@ export type CSVData = {
 
 export type BackgroundOverlay = "none" | "dark" | "light" | "vignette";
 
+export type PageSnapshot = {
+  layers: TextLayer[];
+  imageId: string | null;
+  bgMode: "image" | "color" | "gradient";
+  bgColor: string;
+  gradientFrom: string;
+  gradientTo: string;
+  overlay: BackgroundOverlay;
+};
+
 export type GeneratedPage = {
   id: string;
   rowIndex: number | null;
   thumbnail: string;
   fullDataUrl: string;
   rowData?: Record<string, string>;
+  snapshot: PageSnapshot;
 };
 
 export const FONT_LIBRARY: { category: string; fonts: string[] }[] = [
