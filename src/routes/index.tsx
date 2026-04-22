@@ -1,26 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Studio } from "@/studio/Studio";
+import { Toaster } from "@/components/ui/sonner";
 
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({
+    meta: [
+      { title: "DesignText — Bulk Design Studio" },
+      { name: "description", content: "Canva-like bulk design tool. Upload images and CSV, design on canvas, generate hundreds of designs and export as ZIP." },
+      { property: "og:title", content: "DesignText — Bulk Design Studio" },
+      { property: "og:description", content: "Generate hundreds of on-brand designs in seconds with CSV-driven text layers." },
+    ],
+  }),
+  component: IndexPage,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+function IndexPage() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <>
+      <Studio />
+      <Toaster theme="dark" position="bottom-right" richColors />
+    </>
   );
-}
-
-function Index() {
-  return <PlaceholderIndex />;
 }

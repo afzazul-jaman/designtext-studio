@@ -62,26 +62,32 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
+  --radius: 0.75rem;
+  /* Canva Dark Pro — deep charcoal, electric violet, cyan accent */
+  --background: oklch(0.16 0.02 280);
+  --foreground: oklch(0.97 0.01 280);
+  --card: oklch(0.21 0.025 280);
+  --card-foreground: oklch(0.97 0.01 280);
+  --popover: oklch(0.19 0.025 280);
+  --popover-foreground: oklch(0.97 0.01 280);
+  --primary: oklch(0.62 0.22 295);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.72 0.2 295);
+  --secondary: oklch(0.27 0.03 280);
+  --secondary-foreground: oklch(0.97 0.01 280);
+  --muted: oklch(0.24 0.025 280);
+  --muted-foreground: oklch(0.68 0.02 280);
+  --accent: oklch(0.78 0.15 200);
+  --accent-foreground: oklch(0.15 0.02 280);
+  --destructive: oklch(0.62 0.24 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.3 0.025 280);
+  --input: oklch(0.27 0.025 280);
+  --ring: oklch(0.62 0.22 295);
+  --gradient-primary: linear-gradient(135deg, oklch(0.62 0.22 295), oklch(0.78 0.15 200));
+  --gradient-surface: linear-gradient(180deg, oklch(0.21 0.025 280), oklch(0.18 0.025 280));
+  --shadow-glow: 0 0 24px -4px oklch(0.62 0.22 295 / 0.5);
+  --shadow-panel: 0 10px 40px -10px oklch(0 0 0 / 0.5);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -132,13 +138,47 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
+@theme inline {
+  --color-primary-glow: var(--primary-glow);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
   }
 
+  html, body, #root {
+    height: 100%;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: oklch(0.3 0.025 280); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(0.4 0.05 290); }
+}
+
+@layer utilities {
+  .gradient-primary { background: var(--gradient-primary); }
+  .gradient-surface { background: var(--gradient-surface); }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .shadow-panel { box-shadow: var(--shadow-panel); }
+  .panel-divider { border-color: var(--color-border); }
+  .glass {
+    background: oklch(0.21 0.025 280 / 0.7);
+    backdrop-filter: blur(12px);
   }
 }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
