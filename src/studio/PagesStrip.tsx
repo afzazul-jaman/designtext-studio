@@ -1,4 +1,4 @@
-import { Copy, Trash2, Download, Plus } from "lucide-react";
+import { Copy, Trash2, Download, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useStudio } from "./store";
@@ -8,9 +8,10 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   onAddPage: () => void;
+  onRerender: () => void;
 };
 
-export function PagesStrip({ onAddPage }: Props) {
+export function PagesStrip({ onAddPage, onRerender }: Props) {
   const studio = useStudio();
   if (studio.generated.length === 0) return null;
 
@@ -19,8 +20,18 @@ export function PagesStrip({ onAddPage }: Props) {
       <div className="flex items-center justify-between px-4 py-2">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Generated Pages · {studio.generated.length}
+          {studio.activePageId && (
+            <span className="ml-2 text-primary normal-case font-normal tracking-normal">
+              Editing page #{studio.generated.findIndex((p) => p.id === studio.activePageId) + 1}
+            </span>
+          )}
         </h4>
         <div className="flex gap-1">
+          {studio.activePageId && (
+            <Button size="sm" variant="default" className="h-7 text-xs gradient-primary text-white border-0" onClick={onRerender}>
+              <RefreshCw className="w-3 h-3 mr-1" /> Save edits
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onAddPage}>
             <Plus className="w-3 h-3 mr-1" /> Add
           </Button>
@@ -35,10 +46,11 @@ export function PagesStrip({ onAddPage }: Props) {
             <div
               key={p.id}
               className={cn(
-                "relative shrink-0 group rounded-md overflow-hidden ring-2 transition-all",
+                "relative shrink-0 group rounded-md overflow-hidden ring-2 transition-all cursor-pointer",
                 studio.activePageId === p.id ? "ring-primary shadow-glow" : "ring-border hover:ring-primary/60"
               )}
-              onClick={() => studio.setActivePage(p.id)}
+              onClick={() => studio.loadPageIntoEditor(p.id)}
+              title="Click to edit this page"
             >
               <img src={p.thumbnail} alt={`Page ${i + 1}`} className="h-28 w-auto object-cover bg-muted" />
               <div className="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">#{i + 1}</div>
