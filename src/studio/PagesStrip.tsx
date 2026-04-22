@@ -2,7 +2,8 @@ import { Copy, Trash2, Download, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useStudio } from "./store";
-import { saveAs } from "file-saver";
+import fileSaver from "file-saver";
+const { saveAs } = fileSaver;
 import { cn } from "@/lib/utils";
 
 type Props = {
