@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import JSZip from "jszip";
-import { saveAs } from "file-saver";
+import fileSaver from "file-saver";
+const { saveAs } = fileSaver;
 import { toast } from "sonner";
 import { StudioProvider, useStudio } from "./store";
 import { TopToolbar } from "./TopToolbar";
