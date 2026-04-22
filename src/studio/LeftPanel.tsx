@@ -142,6 +142,30 @@ export function LeftPanel() {
                 )}
               </section>
 
+              {studio.csv && studio.csv.headers.length > 0 && (
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold">Insert CSV Field</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Click a field to insert it into the selected text layer. On Generate, each row's value replaces the field.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {studio.csv.headers.map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => {
+                          studio.insertTextIntoActiveLayer(`{${h}}`);
+                          studio.setMapping(h, h);
+                          toast.success(`Inserted {${h}}`);
+                        }}
+                        className="text-xs px-2.5 py-1 rounded-full bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 hover:shadow-glow transition-all font-mono"
+                      >
+                        + {`{${h}}`}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">Bulk Titles</h3>
                 <Textarea
