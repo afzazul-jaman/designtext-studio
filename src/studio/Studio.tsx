@@ -9,7 +9,7 @@ import { LeftPanel } from "./LeftPanel";
 import { RightPanel } from "./RightPanel";
 import { StudioCanvas } from "./StudioCanvas";
 import { PagesStrip } from "./PagesStrip";
-import { renderToDataURL, substitutePlaceholders } from "./canvasRenderer";
+import { renderToDataURL, substitutePlaceholders, filenameToTitle } from "./canvasRenderer";
 import { GeneratedPage, TextLayer, PageSnapshot } from "./types";
 import { preloadAllFonts } from "./fontLoader";
 
@@ -129,17 +129,24 @@ function StudioInner() {
 
       for (let i = 0; i < total; i++) {
         const row = hasCsv ? studio.csv!.rows[enabledIndexes[i]] : null;
+        // Pick the per-page image FIRST so we can substitute {filename}
+        let pageImage = null as typeof imgs[number] | null;
+        if (imgs.length > 0) {
+          pageImage = hasCsv ? imgs[i % imgs.length] : imgs[i];
+        }
+        const extras: Record<string, string> = pageImage
+          ? { filename: filenameToTitle(pageImage.name) }
+          : {};
         const substituted = studio.layers.map((l) => ({
           ...l,
-          text: row ? substitutePlaceholders(l.text, row, studio.fieldMapping) : l.text,
+          text: substitutePlaceholders(l.text, row, studio.fieldMapping, extras),
         }));
 
         const opts = buildOptions(substituted);
         let imgIdForSnapshot = studio.activeImageId;
-        if (imgs.length > 0) {
-          const img = hasCsv ? imgs[i % imgs.length] : imgs[i];
-          opts.backgroundImageUrl = img.dataUrl;
-          imgIdForSnapshot = img.id;
+        if (pageImage) {
+          opts.backgroundImageUrl = pageImage.dataUrl;
+          imgIdForSnapshot = pageImage.id;
         }
 
         const url = await renderToDataURL(opts, 1);
@@ -166,7 +173,8 @@ function StudioInner() {
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      if (newPages[0]) studio.setActivePage(newPages[0].id);
+      // Auto-load first generated page so editor matches what user sees in the gallery
+      if (newPages[0]) studio.loadPageIntoEditor(newPages[0].id);
       toast.success(`Generated ${newPages.length} designs`);
     } catch (err) {
       console.error(err);

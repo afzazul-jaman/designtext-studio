@@ -23,6 +23,7 @@ export function LeftPanel() {
   const csvRef = useRef<HTMLInputElement>(null);
   const [bulkText, setBulkText] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [tplName, setTplName] = useState("");
 
   const placeholders = extractPlaceholders(studio.layers);
   const mappedCount = placeholders.filter((p) => studio.fieldMapping[p]).length;
@@ -346,28 +347,26 @@ export function LeftPanel() {
                 </div>
               </section>
 
-              {activeImage && (
+              {studio.images.length > 0 && (
                 <section className="space-y-2 pt-2 border-t border-border">
-                  <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  {activeImage && (
+                    <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  )}
                   <Button
                     size="sm"
                     variant="secondary"
                     className="w-full"
                     onClick={() => {
-                      const title = activeImage.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
-                      if (!title) {
-                        toast.error("Filename is empty");
-                        return;
-                      }
-                      studio.insertTextIntoActiveLayer(title);
-                      toast.success(`Added title: ${title}`);
+                      studio.insertTextIntoActiveLayer("{filename}");
+                      toast.success("Inserted {filename} — each generated page will use its own image's title");
                     }}
-                    title="Insert this image's filename as text on the canvas"
+                    title="Inserts a {filename} placeholder. On Generate, every image substitutes its own filename."
                   >
                     <FileText className="w-4 h-4 mr-2" /> Use filename as title
                   </Button>
                   <p className="text-[10px] text-muted-foreground leading-snug">
-                    Pulls the title from the image filename (without extension) and inserts it into the active text layer. You can then style and edit it like any text.
+                    Inserts a <code className="px-1 py-0.5 bg-muted rounded">{`{filename}`}</code> placeholder.
+                    On Generate, each image substitutes its own filename (without extension), so every page gets its own title automatically.
                   </p>
                 </section>
               )}
@@ -531,20 +530,78 @@ export function LeftPanel() {
         {/* TEMPLATES TAB */}
         <TabsContent value="templates" className="flex-1 overflow-hidden m-0">
           <ScrollArea className="h-full">
-            <div className="p-4 space-y-3">
-              <h3 className="text-sm font-semibold">Smart Templates</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {TEMPLATES.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => { studio.applyTemplate(t.layers); toast.success(`Applied: ${t.name}`); }}
-                    className="aspect-[4/5] rounded-md p-3 flex flex-col justify-end text-left text-white text-xs font-semibold ring-1 ring-border hover:ring-primary hover:shadow-glow transition-all"
-                    style={{ background: t.preview }}
+            <div className="p-4 space-y-4">
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">My Templates</h3>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Template name…"
+                    className="h-8 text-xs"
+                    value={tplName}
+                    onChange={(e) => setTplName(e.target.value)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 shrink-0"
+                    onClick={() => {
+                      if (studio.layers.length === 0) {
+                        toast.error("Add some text layers first");
+                        return;
+                      }
+                      studio.saveCurrentAsTemplate(tplName);
+                      setTplName("");
+                      toast.success("Template saved");
+                    }}
                   >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
+                    Save
+                  </Button>
+                </div>
+                {studio.savedTemplates.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic">
+                    No saved templates yet. Design something, then save it here to reuse later.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {studio.savedTemplates.map((t) => (
+                      <div key={t.id} className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted/50">
+                        <button
+                          onClick={() => { studio.applySavedTemplate(t.id); toast.success(`Applied: ${t.name}`); }}
+                          className="flex-1 text-left text-xs font-medium truncate"
+                        >
+                          {t.name}
+                        </button>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {t.layers.length} layer{t.layers.length === 1 ? "" : "s"}
+                        </span>
+                        <button
+                          onClick={() => { studio.deleteSavedTemplate(t.id); toast.success("Deleted"); }}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
+                          title="Delete template"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2 pt-2 border-t border-border">
+                <h3 className="text-sm font-semibold">Smart Templates</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {TEMPLATES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => { studio.applyTemplate(t.layers); toast.success(`Applied: ${t.name}`); }}
+                      className="aspect-[4/5] rounded-md p-3 flex flex-col justify-end text-left text-white text-xs font-semibold ring-1 ring-border hover:ring-primary hover:shadow-glow transition-all"
+                      style={{ background: t.preview }}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </section>
             </div>
           </ScrollArea>
         </TabsContent>

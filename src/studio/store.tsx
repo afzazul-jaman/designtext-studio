@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode, useMemo } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode, useMemo, useRef } from "react";
 import {
   TextLayer,
   UploadedImage,
@@ -9,6 +9,16 @@ import {
   GeneratedPage,
   PageSnapshot,
 } from "./types";
+
+export type SavedTemplate = {
+  id: string;
+  name: string;
+  createdAt: number;
+  layers: Omit<TextLayer, "id">[];
+};
+
+const TEMPLATE_STORAGE_KEY = "designtext.savedTemplates.v1";
+const HISTORY_LIMIT = 50;
 
 type StudioState = {
   // images
@@ -71,6 +81,22 @@ type StudioContextValue = StudioState & {
   getEditorSnapshot: () => PageSnapshot;
   insertTextIntoActiveLayer: (insert: string) => void;
   clearGenerated: () => void;
+
+  // history
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+
+  // saved templates
+  savedTemplates: SavedTemplate[];
+  saveCurrentAsTemplate: (name: string) => void;
+  deleteSavedTemplate: (id: string) => void;
+  applySavedTemplate: (id: string) => void;
+
+  // multi-select trigger (StudioCanvas listens for changes)
+  selectAllNonce: number;
+  selectAllLayers: () => void;
 };
 
 const StudioContext = createContext<StudioContextValue | null>(null);
@@ -107,6 +133,93 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const [generated, setGenerated] = useState<GeneratedPage[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
+
+  // ---- History (undo/redo) for layers ----
+  const historyRef = useRef<TextLayer[][]>([[]]);
+  const historyIdxRef = useRef<number>(0);
+  const skipHistoryRef = useRef<boolean>(false);
+  const [, forceHistoryTick] = useState(0);
+
+  useEffect(() => {
+    if (skipHistoryRef.current) {
+      skipHistoryRef.current = false;
+      return;
+    }
+    const head = historyRef.current[historyIdxRef.current];
+    if (JSON.stringify(head) === JSON.stringify(layers)) return;
+    historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
+    historyRef.current.push(layers.map((l) => ({ ...l, effects: { ...l.effects } })));
+    if (historyRef.current.length > HISTORY_LIMIT) {
+      historyRef.current.shift();
+    } else {
+      historyIdxRef.current += 1;
+    }
+    forceHistoryTick((t) => t + 1);
+  }, [layers]);
+
+  const undo = useCallback(() => {
+    if (historyIdxRef.current <= 0) return;
+    historyIdxRef.current -= 1;
+    skipHistoryRef.current = true;
+    setLayers(historyRef.current[historyIdxRef.current].map((l) => ({ ...l, effects: { ...l.effects } })));
+    forceHistoryTick((t) => t + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    historyIdxRef.current += 1;
+    skipHistoryRef.current = true;
+    setLayers(historyRef.current[historyIdxRef.current].map((l) => ({ ...l, effects: { ...l.effects } })));
+    forceHistoryTick((t) => t + 1);
+  }, []);
+
+  const canUndo = historyIdxRef.current > 0;
+  const canRedo = historyIdxRef.current < historyRef.current.length - 1;
+
+  // ---- Saved templates (localStorage) ----
+  const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>(() => {
+    try {
+      const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as SavedTemplate[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const persistTemplates = useCallback((next: SavedTemplate[]) => {
+    setSavedTemplates(next);
+    try {
+      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* quota exceeded — ignore */
+    }
+  }, []);
+
+  const saveCurrentAsTemplate = useCallback((name: string) => {
+    const tpl: SavedTemplate = {
+      id: newId("tpl"),
+      name: name.trim() || `Template ${new Date().toLocaleString()}`,
+      createdAt: Date.now(),
+      layers: layers.map(({ id: _ignored, ...rest }) => ({ ...rest, effects: { ...rest.effects } })),
+    };
+    persistTemplates([tpl, ...savedTemplates]);
+  }, [layers, savedTemplates, persistTemplates]);
+
+  const deleteSavedTemplate = useCallback((id: string) => {
+    persistTemplates(savedTemplates.filter((t) => t.id !== id));
+  }, [savedTemplates, persistTemplates]);
+
+  const applySavedTemplate = useCallback((id: string) => {
+    const tpl = savedTemplates.find((t) => t.id === id);
+    if (!tpl) return;
+    const withIds = tpl.layers.map((l) => ({ ...l, id: newId("layer"), effects: { ...l.effects } }));
+    setLayers(withIds);
+    setActiveLayerId(withIds[0]?.id ?? null);
+  }, [savedTemplates]);
+
+  // ---- Multi-select trigger ----
+  const [selectAllNonce, setSelectAllNonce] = useState(0);
+  const selectAllLayers = useCallback(() => setSelectAllNonce((n) => n + 1), []);
 
   const addImages = useCallback(async (files: File[]) => {
     const newImgs: UploadedImage[] = [];
@@ -336,6 +449,9 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setGenerated, addGeneratedPage, removeGeneratedPage, duplicateGeneratedPage,
     updateGeneratedPage, loadPageIntoEditor, getEditorSnapshot, insertTextIntoActiveLayer,
     setActivePage: setActivePageId, clearGenerated,
+    undo, redo, canUndo, canRedo,
+    savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
+    selectAllNonce, selectAllLayers,
   }), [
     images, activeImageId, overlay, bgColor, bgMode, gradientFrom, gradientTo,
     layers, activeLayerId, csv, enabledRows, fieldMapping, canvasPreset,
@@ -345,6 +461,9 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setCanvasPreset, setCustomSize, addGeneratedPage, removeGeneratedPage,
     duplicateGeneratedPage, updateGeneratedPage, loadPageIntoEditor,
     getEditorSnapshot, insertTextIntoActiveLayer, clearGenerated,
+    undo, redo, canUndo, canRedo,
+    savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
+    selectAllNonce, selectAllLayers,
   ]);
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;

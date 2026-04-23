@@ -1,4 +1,4 @@
-import { Bold, Italic, AlignLeft, AlignCenter, AlignRight, Plus, Download, Sparkles, Type } from "lucide-react";
+import { Bold, Italic, AlignLeft, AlignCenter, AlignRight, Plus, Download, Sparkles, Type, Undo2, Redo2, MousePointerSquareDashed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -108,6 +108,20 @@ export function TopToolbar({ onGenerate, onExport, generating }: Props) {
       </div>
 
       <div className="flex-1" />
+
+      <Button size="icon" variant="ghost" className="h-9 w-9" disabled={!studio.canUndo}
+        onClick={studio.undo} title="Undo (Ctrl+Z)">
+        <Undo2 className="w-4 h-4" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-9 w-9" disabled={!studio.canRedo}
+        onClick={studio.redo} title="Redo (Ctrl+Shift+Z)">
+        <Redo2 className="w-4 h-4" />
+      </Button>
+      <Button size="sm" variant="outline" className="h-9" onClick={studio.selectAllLayers} disabled={studio.layers.length === 0} title="Select all text layers (Ctrl+A)">
+        <MousePointerSquareDashed className="w-4 h-4 mr-1.5" /> Select all
+      </Button>
+
+      <Separator orientation="vertical" className="h-8 mx-1" />
 
       <Button variant="outline" size="sm" onClick={() => studio.addLayer()}>
         <Type className="w-4 h-4 mr-1.5" /> Add Text

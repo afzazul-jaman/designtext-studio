@@ -167,12 +167,26 @@ export async function renderToDataURL(opts: RenderOptions, multiplier = 1): Prom
   return url;
 }
 
-export function substitutePlaceholders(text: string, row: Record<string, string>, mapping: Record<string, string>): string {
+export function substitutePlaceholders(
+  text: string,
+  row: Record<string, string> | null,
+  mapping: Record<string, string>,
+  extras?: Record<string, string>
+): string {
   return text.replace(/\{([^}]+)\}/g, (_, key: string) => {
     const trimmed = key.trim();
-    const mapped = mapping[trimmed] ?? trimmed;
-    return row[mapped] ?? row[trimmed] ?? `{${trimmed}}`;
+    if (extras && extras[trimmed] != null) return extras[trimmed];
+    if (row) {
+      const mapped = mapping[trimmed] ?? trimmed;
+      if (row[mapped] != null) return row[mapped];
+      if (row[trimmed] != null) return row[trimmed];
+    }
+    return `{${trimmed}}`;
   });
+}
+
+export function filenameToTitle(name: string): string {
+  return name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
 }
 
 export function extractPlaceholders(layers: TextLayer[]): string[] {
