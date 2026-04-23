@@ -83,59 +83,67 @@ function StudioInner() {
   };
 
   const handleGenerate = async () => {
-    if (!studio.csv) {
-      // No CSV — just snapshot current
+    if (studio.layers.length === 0 && studio.images.length === 0) {
+      toast.error("Add at least one image or text layer");
+      return;
+    }
+
+    const imgs = studio.images;
+    const hasCsv = !!studio.csv;
+    const enabledIndexes = hasCsv
+      ? Array.from(studio.enabledRows).sort((a, b) => a - b)
+      : [];
+
+    // Determine total iterations:
+    // - With CSV: one design per enabled row (image cycles)
+    // - Without CSV but multiple images: one design per image (same text on all)
+    // - Otherwise: just snapshot the current canvas
+    if (!hasCsv && imgs.length <= 1) {
       await handleAddCurrent();
       return;
     }
-    if (studio.layers.length === 0) {
-      toast.error("Add at least one text layer");
+
+    if (hasCsv && enabledIndexes.length === 0) {
+      toast.error("No rows selected");
       return;
     }
+
+    const total = hasCsv ? enabledIndexes.length : imgs.length;
 
     setGenerating(true);
     setProgress(0);
     studio.clearGenerated();
 
     try {
-      const enabledIndexes = Array.from(studio.enabledRows).sort((a, b) => a - b);
-      const total = enabledIndexes.length;
-      if (total === 0) {
-        toast.error("No rows selected");
-        setGenerating(false);
-        return;
-      }
-
-      // multi-image cycling
-      const imgs = studio.images;
       const newPages: GeneratedPage[] = [];
 
-      for (let i = 0; i < enabledIndexes.length; i++) {
-        const rowIndex = enabledIndexes[i];
-        const row = studio.csv.rows[rowIndex];
+      for (let i = 0; i < total; i++) {
+        const row = hasCsv ? studio.csv!.rows[enabledIndexes[i]] : null;
         const substituted = studio.layers.map((l) => ({
           ...l,
-          text: substitutePlaceholders(l.text, row, studio.fieldMapping),
+          text: row ? substitutePlaceholders(l.text, row, studio.fieldMapping) : l.text,
         }));
 
         const opts = buildOptions(substituted);
+        let imgIdForSnapshot = studio.activeImageId;
         if (imgs.length > 0) {
-          const img = imgs[i % imgs.length];
+          const img = hasCsv ? imgs[i % imgs.length] : imgs[i];
           opts.backgroundImageUrl = img.dataUrl;
+          imgIdForSnapshot = img.id;
         }
 
         const url = await renderToDataURL(opts, 1);
         const thumb = await renderThumbnail(url);
         const page: GeneratedPage = {
           id: `page_${Date.now()}_${i}`,
-          rowIndex,
+          rowIndex: hasCsv ? enabledIndexes[i] : null,
           thumbnail: thumb,
           fullDataUrl: url,
-          rowData: row,
+          rowData: row ?? undefined,
           snapshot: {
             layers: substituted.map((l) => ({ ...l, effects: { ...l.effects } })),
-            imageId: imgs.length > 0 ? imgs[i % imgs.length].id : studio.activeImageId,
-            bgMode: studio.bgMode,
+            imageId: imgIdForSnapshot,
+            bgMode: imgs.length > 0 ? "image" : studio.bgMode,
             bgColor: studio.bgColor,
             gradientFrom: studio.gradientFrom,
             gradientTo: studio.gradientTo,
@@ -145,7 +153,6 @@ function StudioInner() {
         newPages.push(page);
         studio.addGeneratedPage(page);
         setProgress(Math.round(((i + 1) / total) * 100));
-        // yield to UI
         await new Promise((r) => setTimeout(r, 0));
       }
 
