@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode, useMemo } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode, useMemo, useRef } from "react";
 import {
   TextLayer,
   UploadedImage,
@@ -9,6 +9,16 @@ import {
   GeneratedPage,
   PageSnapshot,
 } from "./types";
+
+export type SavedTemplate = {
+  id: string;
+  name: string;
+  createdAt: number;
+  layers: Omit<TextLayer, "id">[];
+};
+
+const TEMPLATE_STORAGE_KEY = "designtext.savedTemplates.v1";
+const HISTORY_LIMIT = 50;
 
 type StudioState = {
   // images
