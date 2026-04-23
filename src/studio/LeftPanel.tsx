@@ -23,6 +23,7 @@ export function LeftPanel() {
   const csvRef = useRef<HTMLInputElement>(null);
   const [bulkText, setBulkText] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [tplName, setTplName] = useState("");
 
   const placeholders = extractPlaceholders(studio.layers);
   const mappedCount = placeholders.filter((p) => studio.fieldMapping[p]).length;
