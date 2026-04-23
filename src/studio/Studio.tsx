@@ -10,7 +10,7 @@ import { RightPanel } from "./RightPanel";
 import { StudioCanvas } from "./StudioCanvas";
 import { PagesStrip } from "./PagesStrip";
 import { renderToDataURL, substitutePlaceholders } from "./canvasRenderer";
-import { GeneratedPage, TextLayer } from "./types";
+import { GeneratedPage, TextLayer, PageSnapshot } from "./types";
 import { preloadAllFonts } from "./fontLoader";
 
 function StudioInner() {
@@ -34,12 +34,25 @@ function StudioInner() {
     layers: overrideLayers ?? studio.layers,
   });
 
+  // Build render options from a snapshot (used at export time so the file matches the editor)
+  const optionsFromSnapshot = (snap: PageSnapshot) => ({
+    width: studio.canvasPreset.width,
+    height: studio.canvasPreset.height,
+    bgMode: snap.bgMode,
+    bgColor: snap.bgColor,
+    gradientFrom: snap.gradientFrom,
+    gradientTo: snap.gradientTo,
+    backgroundImageUrl: studio.images.find((i) => i.id === snap.imageId)?.dataUrl ?? null,
+    overlay: snap.overlay,
+    layers: snap.layers,
+  });
+
   const renderThumbnail = async (fullUrl: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement("canvas");
-        const targetH = 200;
+        const targetH = 360;
         const ratio = img.width / img.height;
         c.height = targetH;
         c.width = Math.round(targetH * ratio);
@@ -90,21 +103,18 @@ function StudioInner() {
 
     const imgs = studio.images;
     const hasCsv = !!studio.csv;
+    // CRITICAL: only use rows the user has selected — never others
     const enabledIndexes = hasCsv
       ? Array.from(studio.enabledRows).sort((a, b) => a - b)
       : [];
 
-    // Determine total iterations:
-    // - With CSV: one design per enabled row (image cycles)
-    // - Without CSV but multiple images: one design per image (same text on all)
-    // - Otherwise: just snapshot the current canvas
     if (!hasCsv && imgs.length <= 1) {
       await handleAddCurrent();
       return;
     }
 
     if (hasCsv && enabledIndexes.length === 0) {
-      toast.error("No rows selected");
+      toast.error("No rows selected — tick rows in the Data tab");
       return;
     }
 
@@ -168,30 +178,74 @@ function StudioInner() {
   };
 
   const handleExport = async () => {
-    const pages = studio.generated;
-    if (pages.length === 0) {
-      // Export current canvas
+    // If user is editing a page, fold their unsaved edits into that page first
+    if (studio.activePageId) {
+      try {
+        const url = await renderToDataURL(buildOptions(), 1);
+        const thumb = await renderThumbnail(url);
+        studio.updateGeneratedPage(studio.activePageId, {
+          fullDataUrl: url,
+          thumbnail: thumb,
+          snapshot: studio.getEditorSnapshot(),
+        });
+      } catch (e) {
+        console.warn("auto-save before export failed", e);
+      }
+    }
+
+    // Snapshot the latest pages list AFTER the auto-save above
+    const pagesAfter = studio.activePageId
+      ? studio.generated.map((p) =>
+          p.id === studio.activePageId
+            ? { ...p, snapshot: studio.getEditorSnapshot() }
+            : p
+        )
+      : studio.generated;
+
+    if (pagesAfter.length === 0) {
+      // Export current canvas at 2x
       const url = await renderToDataURL(buildOptions(), 2);
       saveAs(url, "design.png");
       toast.success("Exported design.png");
       return;
     }
-    if (pages.length === 1) {
-      saveAs(pages[0].fullDataUrl, "design-1.png");
-      toast.success("Exported design");
-      return;
-    }
-    const zip = new JSZip();
-    const folder = zip.folder("designs")!;
-    for (let i = 0; i < pages.length; i++) {
-      const dataUrl = pages[i].fullDataUrl;
-      const base64 = dataUrl.split(",")[1];
-      folder.file(`design-${String(i + 1).padStart(4, "0")}.png`, base64, { base64: true });
-    }
-    const blob = await zip.generateAsync({ type: "blob" }, (m) => setProgress(Math.round(m.percent)));
-    saveAs(blob, `designs-${pages.length}.zip`);
-    toast.success(`Exported ZIP with ${pages.length} designs`);
+
+    setGenerating(true);
     setProgress(0);
+    try {
+      // Always re-render from snapshot at 2x so the file matches the editor exactly
+      const fresh: { name: string; dataUrl: string }[] = [];
+      for (let i = 0; i < pagesAfter.length; i++) {
+        const p = pagesAfter[i];
+        const url = await renderToDataURL(optionsFromSnapshot(p.snapshot), 2);
+        fresh.push({ name: `design-${String(i + 1).padStart(4, "0")}.png`, dataUrl: url });
+        setProgress(Math.round(((i + 1) / pagesAfter.length) * 60));
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      if (fresh.length === 1) {
+        saveAs(fresh[0].dataUrl, fresh[0].name);
+        toast.success("Exported design");
+        return;
+      }
+
+      const zip = new JSZip();
+      const folder = zip.folder("designs")!;
+      for (const f of fresh) {
+        folder.file(f.name, f.dataUrl.split(",")[1], { base64: true });
+      }
+      const blob = await zip.generateAsync({ type: "blob" }, (m) =>
+        setProgress(60 + Math.round(m.percent * 0.4))
+      );
+      saveAs(blob, `designs-${fresh.length}.zip`);
+      toast.success(`Exported ZIP with ${fresh.length} designs`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Export failed: " + (err as Error).message);
+    } finally {
+      setGenerating(false);
+      setProgress(0);
+    }
   };
 
   return (
@@ -206,8 +260,8 @@ function StudioInner() {
               <div className="h-full gradient-primary transition-all" style={{ width: `${progress}%` }} />
             </div>
           )}
-          <PagesStrip onAddPage={handleAddCurrent} onRerender={handleRerenderActive} />
         </div>
+        <PagesStrip onAddPage={handleAddCurrent} onRerender={handleRerenderActive} />
         <RightPanel />
       </div>
     </div>

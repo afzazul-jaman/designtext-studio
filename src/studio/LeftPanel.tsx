@@ -1,6 +1,6 @@
 import { useRef, useState, DragEvent } from "react";
 import Papa from "papaparse";
-import { Upload, X, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, Image as ImageIcon, Type, Sparkles, Palette as PaletteIcon, Wand2 } from "lucide-react";
+import { Upload, X, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, Image as ImageIcon, Type, Sparkles, Palette as PaletteIcon, Wand2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -112,34 +112,53 @@ export function LeftPanel() {
                 <Button variant="outline" className="w-full" onClick={() => csvRef.current?.click()}>
                   <Upload className="w-4 h-4 mr-2" /> Upload CSV
                 </Button>
-                {studio.csv && (
-                  <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2 animate-fade-in">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium truncate max-w-[180px]">{studio.csv.fileName}</span>
-                      <Badge variant="secondary">{studio.csv.rows.length} rows</Badge>
-                    </div>
-                    <div className="max-h-40 overflow-auto rounded border border-border">
-                      <table className="w-full text-[11px]">
-                        <thead className="bg-muted sticky top-0">
-                          <tr>
-                            {studio.csv.headers.map((h) => (
-                              <th key={h} className="px-2 py-1 text-left font-medium">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {studio.csv.rows.slice(0, 30).map((r, i) => (
-                            <tr key={i} className="border-t border-border">
-                              {studio.csv!.headers.map((h) => (
-                                <td key={h} className="px-2 py-1 truncate max-w-[100px]">{r[h]}</td>
+                {studio.csv && (() => {
+                  const selectedRows = studio.csv.rows
+                    .map((r, i) => ({ r, i }))
+                    .filter(({ i }) => studio.enabledRows.has(i));
+                  const previewRows = selectedRows.slice(0, 30);
+                  return (
+                    <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2 animate-fade-in">
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <span className="font-medium truncate flex-1 min-w-0">{studio.csv.fileName}</span>
+                        <Badge variant="secondary" className="shrink-0">
+                          {selectedRows.length}/{studio.csv.rows.length} selected
+                        </Badge>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Showing only selected rows. Generation uses these only.
+                      </p>
+                      {previewRows.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic px-2 py-3 text-center">
+                          No rows selected — tick rows below.
+                        </p>
+                      ) : (
+                        <div className="max-h-40 overflow-auto rounded border border-border">
+                          <table className="w-full text-[11px]">
+                            <thead className="bg-muted sticky top-0">
+                              <tr>
+                                <th className="px-2 py-1 text-left font-medium w-8">#</th>
+                                {studio.csv!.headers.map((h) => (
+                                  <th key={h} className="px-2 py-1 text-left font-medium">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {previewRows.map(({ r, i }) => (
+                                <tr key={i} className="border-t border-border">
+                                  <td className="px-2 py-1 text-muted-foreground font-mono">{i + 1}</td>
+                                  {studio.csv!.headers.map((h) => (
+                                    <td key={h} className="px-2 py-1 truncate max-w-[100px]">{r[h]}</td>
+                                  ))}
+                                </tr>
                               ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </section>
 
               {studio.csv && studio.csv.headers.length > 0 && (
@@ -328,7 +347,29 @@ export function LeftPanel() {
               </section>
 
               {activeImage && (
-                <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                <section className="space-y-2 pt-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      const title = activeImage.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+                      if (!title) {
+                        toast.error("Filename is empty");
+                        return;
+                      }
+                      studio.insertTextIntoActiveLayer(title);
+                      toast.success(`Added title: ${title}`);
+                    }}
+                    title="Insert this image's filename as text on the canvas"
+                  >
+                    <FileText className="w-4 h-4 mr-2" /> Use filename as title
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground leading-snug">
+                    Pulls the title from the image filename (without extension) and inserts it into the active text layer. You can then style and edit it like any text.
+                  </p>
+                </section>
               )}
             </div>
           </ScrollArea>
