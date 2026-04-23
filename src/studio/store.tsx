@@ -81,6 +81,22 @@ type StudioContextValue = StudioState & {
   getEditorSnapshot: () => PageSnapshot;
   insertTextIntoActiveLayer: (insert: string) => void;
   clearGenerated: () => void;
+
+  // history
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+
+  // saved templates
+  savedTemplates: SavedTemplate[];
+  saveCurrentAsTemplate: (name: string) => void;
+  deleteSavedTemplate: (id: string) => void;
+  applySavedTemplate: (id: string) => void;
+
+  // multi-select trigger (StudioCanvas listens for changes)
+  selectAllNonce: number;
+  selectAllLayers: () => void;
 };
 
 const StudioContext = createContext<StudioContextValue | null>(null);
