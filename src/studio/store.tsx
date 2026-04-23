@@ -449,6 +449,9 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setGenerated, addGeneratedPage, removeGeneratedPage, duplicateGeneratedPage,
     updateGeneratedPage, loadPageIntoEditor, getEditorSnapshot, insertTextIntoActiveLayer,
     setActivePage: setActivePageId, clearGenerated,
+    undo, redo, canUndo, canRedo,
+    savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
+    selectAllNonce, selectAllLayers,
   }), [
     images, activeImageId, overlay, bgColor, bgMode, gradientFrom, gradientTo,
     layers, activeLayerId, csv, enabledRows, fieldMapping, canvasPreset,
@@ -458,6 +461,9 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setCanvasPreset, setCustomSize, addGeneratedPage, removeGeneratedPage,
     duplicateGeneratedPage, updateGeneratedPage, loadPageIntoEditor,
     getEditorSnapshot, insertTextIntoActiveLayer, clearGenerated,
+    undo, redo, canUndo, canRedo,
+    savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
+    selectAllNonce, selectAllLayers,
   ]);
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
