@@ -328,7 +328,29 @@ export function LeftPanel() {
               </section>
 
               {activeImage && (
-                <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                <section className="space-y-2 pt-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      const title = activeImage.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+                      if (!title) {
+                        toast.error("Filename is empty");
+                        return;
+                      }
+                      studio.insertTextIntoActiveLayer(title);
+                      toast.success(`Added title: ${title}`);
+                    }}
+                    title="Insert this image's filename as text on the canvas"
+                  >
+                    <FileText className="w-4 h-4 mr-2" /> Use filename as title
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground leading-snug">
+                    Pulls the title from the image filename (without extension) and inserts it into the active text layer. You can then style and edit it like any text.
+                  </p>
+                </section>
               )}
             </div>
           </ScrollArea>
