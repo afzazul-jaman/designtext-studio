@@ -232,6 +232,43 @@ export function StudioCanvas() {
     }
   }, [studio.activeLayerId]);
 
+  // Select-all trigger
+  useEffect(() => {
+    if (studio.selectAllNonce === 0) return;
+    const c = fabricRef.current;
+    if (!c) return;
+    const textObjs = c.getObjects().filter(
+      (o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId
+    );
+    if (textObjs.length === 0) return;
+    c.discardActiveObject();
+    if (textObjs.length === 1) {
+      c.setActiveObject(textObjs[0]);
+    } else {
+      const sel = new fabric.ActiveSelection(textObjs, { canvas: c });
+      c.setActiveObject(sel);
+    }
+    c.requestRenderAll();
+  }, [studio.selectAllNonce]);
+
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Shift+Z / Ctrl+Y redo, Ctrl+A select-all
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isEditable = tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
+      if (isEditable) return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (!meta) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); studioRef.current.undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); studioRef.current.redo(); }
+      else if (k === "a") { e.preventDefault(); studioRef.current.selectAllLayers(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <div ref={wrapperRef} className="flex-1 flex items-center justify-center overflow-hidden bg-background relative">
       {/* checkerboard subtle */}
