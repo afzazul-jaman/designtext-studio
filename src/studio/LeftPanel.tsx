@@ -346,28 +346,26 @@ export function LeftPanel() {
                 </div>
               </section>
 
-              {activeImage && (
+              {studio.images.length > 0 && (
                 <section className="space-y-2 pt-2 border-t border-border">
-                  <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  {activeImage && (
+                    <p className="text-xs text-muted-foreground truncate">Active: {activeImage.name}</p>
+                  )}
                   <Button
                     size="sm"
                     variant="secondary"
                     className="w-full"
                     onClick={() => {
-                      const title = activeImage.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
-                      if (!title) {
-                        toast.error("Filename is empty");
-                        return;
-                      }
-                      studio.insertTextIntoActiveLayer(title);
-                      toast.success(`Added title: ${title}`);
+                      studio.insertTextIntoActiveLayer("{filename}");
+                      toast.success("Inserted {filename} — each generated page will use its own image's title");
                     }}
-                    title="Insert this image's filename as text on the canvas"
+                    title="Inserts a {filename} placeholder. On Generate, every image substitutes its own filename."
                   >
                     <FileText className="w-4 h-4 mr-2" /> Use filename as title
                   </Button>
                   <p className="text-[10px] text-muted-foreground leading-snug">
-                    Pulls the title from the image filename (without extension) and inserts it into the active text layer. You can then style and edit it like any text.
+                    Inserts a <code className="px-1 py-0.5 bg-muted rounded">{`{filename}`}</code> placeholder.
+                    On Generate, each image substitutes its own filename (without extension), so every page gets its own title automatically.
                   </p>
                 </section>
               )}
