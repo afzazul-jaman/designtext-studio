@@ -9,7 +9,7 @@ import { LeftPanel } from "./LeftPanel";
 import { RightPanel } from "./RightPanel";
 import { StudioCanvas } from "./StudioCanvas";
 import { PagesStrip } from "./PagesStrip";
-import { renderToDataURL, substitutePlaceholders } from "./canvasRenderer";
+import { renderToDataURL, substitutePlaceholders, filenameToTitle } from "./canvasRenderer";
 import { GeneratedPage, TextLayer, PageSnapshot } from "./types";
 import { preloadAllFonts } from "./fontLoader";
 
