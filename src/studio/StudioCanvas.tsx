@@ -101,6 +101,7 @@ export function StudioCanvas() {
     });
 
     return () => {
+      activeFabricCanvas = null;
       c.dispose();
       fabricRef.current = null;
     };
