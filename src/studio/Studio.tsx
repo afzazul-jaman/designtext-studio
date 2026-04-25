@@ -137,6 +137,21 @@ function StudioInner() {
 
     const total = hasCsv ? enabledIndexes.length : imgs.length;
 
+    // Snapshot the TEMPLATE (with {placeholder} text intact) ONCE, before the loop.
+    // Never read studio.layers inside the loop — it may have been mutated by a prior
+    // generate that loaded a substituted page back into the editor.
+    const templateLayers: TextLayer[] = studio.layers.map((l) => ({
+      ...l,
+      effects: { ...l.effects },
+      styles: l.styles ? JSON.parse(JSON.stringify(l.styles)) : undefined,
+    }));
+    const templateMapping = { ...studio.fieldMapping };
+    const templateBgMode = studio.bgMode;
+    const templateBgColor = studio.bgColor;
+    const templateGradFrom = studio.gradientFrom;
+    const templateGradTo = studio.gradientTo;
+    const templateOverlay = studio.overlay;
+
     setGenerating(true);
     setProgress(0);
     studio.clearGenerated();
@@ -154,17 +169,25 @@ function StudioInner() {
         const extras: Record<string, string> = pageImage
           ? { filename: filenameToTitle(pageImage.name) }
           : {};
-        const substituted = studio.layers.map((l) => ({
+        const substituted = templateLayers.map((l) => ({
           ...l,
-          text: substitutePlaceholders(l.text, row, studio.fieldMapping, extras),
+          effects: { ...l.effects },
+          styles: l.styles ? JSON.parse(JSON.stringify(l.styles)) : undefined,
+          text: substitutePlaceholders(l.text, row, templateMapping, extras),
         }));
 
-        const opts = buildOptions(substituted);
-        let imgIdForSnapshot = studio.activeImageId;
-        if (pageImage) {
-          opts.backgroundImageUrl = pageImage.dataUrl;
-          imgIdForSnapshot = pageImage.id;
-        }
+        const opts = {
+          width: studio.canvasPreset.width,
+          height: studio.canvasPreset.height,
+          bgMode: imgs.length > 0 ? ("image" as const) : templateBgMode,
+          bgColor: templateBgColor,
+          gradientFrom: templateGradFrom,
+          gradientTo: templateGradTo,
+          overlay: templateOverlay,
+          layers: substituted,
+          backgroundImageUrl: pageImage?.dataUrl ?? null,
+        };
+        const imgIdForSnapshot = pageImage?.id ?? studio.activeImageId;
 
         const url = await renderToDataURL(opts, 1);
         const thumb = await renderThumbnail(url);
@@ -177,11 +200,11 @@ function StudioInner() {
           snapshot: {
             layers: substituted.map((l) => ({ ...l, effects: { ...l.effects } })),
             imageId: imgIdForSnapshot,
-            bgMode: imgs.length > 0 ? "image" : studio.bgMode,
-            bgColor: studio.bgColor,
-            gradientFrom: studio.gradientFrom,
-            gradientTo: studio.gradientTo,
-            overlay: studio.overlay,
+            bgMode: imgs.length > 0 ? "image" : templateBgMode,
+            bgColor: templateBgColor,
+            gradientFrom: templateGradFrom,
+            gradientTo: templateGradTo,
+            overlay: templateOverlay,
           },
         };
         newPages.push(page);
@@ -190,9 +213,11 @@ function StudioInner() {
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      // Auto-load first generated page so editor matches what user sees in the gallery
-      if (newPages[0]) studio.loadPageIntoEditor(newPages[0].id);
-      toast.success(`Generated ${newPages.length} designs`);
+      // IMPORTANT: do NOT load the first generated page into the editor — that
+      // would overwrite the template ({Name} placeholders) with substituted text,
+      // breaking the next Generate. The editor stays on the template; clicking a
+      // page card in the right strip lets the user edit that specific page.
+      toast.success(`Generated ${newPages.length} designs — click any page on the right to edit it`);
     } catch (err) {
       console.error(err);
       toast.error("Generation failed: " + (err as Error).message);
