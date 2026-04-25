@@ -4,6 +4,40 @@ import { useStudio } from "./store";
 import { applyBackground } from "./canvasRenderer";
 import { ensureFontReady } from "./fontLoader";
 
+// Module-level reference so other panels (e.g. color picker) can apply styles
+// to the currently-edited text selection without prop-drilling the canvas.
+let activeFabricCanvas: fabric.Canvas | null = null;
+export function getActiveFabricCanvas(): fabric.Canvas | null {
+  return activeFabricCanvas;
+}
+
+/**
+ * If a Textbox is currently in editing mode and has a character selection,
+ * apply the given style patch to that range and persist it back into the layer.
+ * Returns true if applied, false if no active editing/selection.
+ */
+export function applyStyleToSelection(
+  patch: Record<string, unknown>,
+  updateLayer: (id: string, updates: Record<string, unknown>) => void
+): boolean {
+  const c = activeFabricCanvas;
+  if (!c) return false;
+  const obj = c.getActiveObject() as (fabric.Textbox & { isEditing?: boolean; data?: { layerId?: string } }) | null;
+  if (!obj || !(obj instanceof fabric.Textbox)) return false;
+  if (!obj.isEditing) return false;
+  const start = obj.selectionStart ?? 0;
+  const end = obj.selectionEnd ?? 0;
+  if (start === end) return false;
+  obj.setSelectionStyles(patch, start, end);
+  c.requestRenderAll();
+  if (obj.data?.layerId) {
+    updateLayer(obj.data.layerId, {
+      styles: obj.styles ? JSON.parse(JSON.stringify(obj.styles)) : undefined,
+    });
+  }
+  return true;
+}
+
 export function StudioCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
@@ -21,6 +55,7 @@ export function StudioCanvas() {
       backgroundColor: "#1a1a2e",
     });
     fabricRef.current = c;
+    activeFabricCanvas = c;
 
     c.on("object:modified", (e) => {
       const obj = e.target as fabric.Object & { data?: { layerId?: string } };
@@ -32,6 +67,7 @@ export function StudioCanvas() {
         top: tb.top ?? 0,
         width: tb.width ?? 100,
         fontSize: Math.round((tb.fontSize ?? 16) * (tb.scaleX ?? 1)),
+        styles: tb.styles ? JSON.parse(JSON.stringify(tb.styles)) : undefined,
       });
       tb.set({ scaleX: 1, scaleY: 1 });
       c.renderAll();
@@ -40,7 +76,10 @@ export function StudioCanvas() {
     c.on("text:changed", (e) => {
       const tb = e.target as fabric.Textbox & { data?: { layerId?: string } };
       if (!tb.data?.layerId) return;
-      studioRef.current.updateLayer(tb.data.layerId, { text: tb.text ?? "" });
+      studioRef.current.updateLayer(tb.data.layerId, {
+        text: tb.text ?? "",
+        styles: tb.styles ? JSON.parse(JSON.stringify(tb.styles)) : undefined,
+      });
     });
 
     c.on("selection:created", (e) => {
@@ -62,6 +101,7 @@ export function StudioCanvas() {
     });
 
     return () => {
+      activeFabricCanvas = null;
       c.dispose();
       fabricRef.current = null;
     };
@@ -185,6 +225,7 @@ export function StudioCanvas() {
       for (const layer of studio.layers) {
         await ensureFontReady(layer.fontFamily);
         let tb = existing.get(layer.id);
+        const isNew = !tb;
         if (!tb) {
           tb = new fabric.Textbox(layer.text, {
             left: layer.left,
@@ -196,8 +237,12 @@ export function StudioCanvas() {
           tb.set("data", { layerId: layer.id });
           c.add(tb);
         }
+        const isEditing = (tb as fabric.Textbox & { isEditing?: boolean }).isEditing;
+        // Only overwrite text if not currently being edited (preserves caret/selection)
+        if (!isEditing && tb.text !== layer.text) {
+          tb.set({ text: layer.text });
+        }
         tb.set({
-          text: layer.text,
           fontFamily: layer.fontFamily,
           fontSize: layer.fontSize,
           fill: layer.fill,
@@ -219,6 +264,10 @@ export function StudioCanvas() {
           strokeWidth: layer.effects.stroke ? layer.strokeWidth : 0,
           paintFirst: "stroke",
         });
+        // Apply per-character styles
+        if (isNew || !isEditing) {
+          tb.styles = layer.styles ? JSON.parse(JSON.stringify(layer.styles)) : {};
+        }
         tb.setCoords();
       }
       c.renderAll();

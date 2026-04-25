@@ -78,6 +78,9 @@ function buildTextbox(layer: TextLayer, interactive: boolean): fabric.Textbox {
     splitByGrapheme: false,
   });
   tb.set("data", { layerId: layer.id });
+  if (layer.styles) {
+    tb.styles = JSON.parse(JSON.stringify(layer.styles));
+  }
 
   if (layer.effects.shadow) {
     tb.set("shadow", new fabric.Shadow({ color: "rgba(0,0,0,0.55)", blur: 12, offsetX: 0, offsetY: 4 }));
