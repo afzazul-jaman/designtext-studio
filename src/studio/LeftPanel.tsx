@@ -460,7 +460,12 @@ export function LeftPanel() {
               )}
 
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold flex items-center gap-2"><PaletteIcon className="w-4 h-4" /> Color Palette</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <PaletteIcon className="w-4 h-4" /> Color Palette
+                </h3>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Tip: <strong>double-click</strong> a text on the canvas, then <strong>select a word</strong> with your cursor — clicking a color will only recolor that word.
+                </p>
                 <div className="grid grid-cols-8 gap-1.5">
                   {COLOR_PALETTE.map((c) => (
                     <button
@@ -468,11 +473,29 @@ export function LeftPanel() {
                       className="aspect-square rounded-md ring-1 ring-border hover:scale-110 transition-transform"
                       style={{ backgroundColor: c }}
                       onClick={() => {
-                        if (studio.activeLayerId) studio.updateLayer(studio.activeLayerId, { fill: c });
+                        if (!studio.activeLayerId) return;
+                        const applied = applyStyleToSelection(
+                          { fill: c },
+                          (id, updates) => studio.updateLayer(id, updates)
+                        );
+                        if (!applied) studio.updateLayer(studio.activeLayerId, { fill: c });
                       }}
                     />
                   ))}
                 </div>
+                <input
+                  type="color"
+                  className="w-full h-8 rounded-md cursor-pointer bg-transparent border border-border"
+                  onChange={(e) => {
+                    if (!studio.activeLayerId) return;
+                    const applied = applyStyleToSelection(
+                      { fill: e.target.value },
+                      (id, updates) => studio.updateLayer(id, updates)
+                    );
+                    if (!applied) studio.updateLayer(studio.activeLayerId, { fill: e.target.value });
+                  }}
+                  title="Custom color (applies to selected word if editing, otherwise whole layer)"
+                />
               </section>
 
               <section className="space-y-2">
@@ -487,7 +510,12 @@ export function LeftPanel() {
                           onMouseEnter={() => loadGoogleFont(f)}
                           onClick={() => {
                             loadGoogleFont(f);
-                            if (studio.activeLayerId) studio.updateLayer(studio.activeLayerId, { fontFamily: f });
+                            if (!studio.activeLayerId) return;
+                            const applied = applyStyleToSelection(
+                              { fontFamily: f },
+                              (id, updates) => studio.updateLayer(id, updates)
+                            );
+                            if (!applied) studio.updateLayer(studio.activeLayerId, { fontFamily: f });
                           }}
                           className="text-xs px-2 py-1.5 rounded border border-border hover:bg-muted text-left truncate"
                           style={{ fontFamily: f }}
