@@ -121,11 +121,6 @@ export function StudioCanvas() {
       const ah = wrapper.clientHeight - padding;
       const scale = Math.min(aw / studio.canvasPreset.width, ah / studio.canvasPreset.height, 1);
       setDisplayScale(scale);
-      const el = c.getElement().parentElement?.parentElement as HTMLElement | null;
-      if (el) {
-        el.style.transform = `scale(${scale})`;
-        el.style.transformOrigin = "top left";
-      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -338,8 +333,22 @@ export function StudioCanvas() {
           backgroundSize: "24px 24px",
         }}
       />
-      <div className="relative" style={{ width: studio.canvasPreset.width * displayScale, height: studio.canvasPreset.height * displayScale }}>
-        <div className="shadow-panel rounded-lg overflow-hidden ring-1 ring-border" style={{ width: studio.canvasPreset.width, height: studio.canvasPreset.height }}>
+      <div
+        className="relative"
+        style={{
+          width: studio.canvasPreset.width * displayScale,
+          height: studio.canvasPreset.height * displayScale,
+        }}
+      >
+        <div
+          className="shadow-panel rounded-lg overflow-hidden ring-1 ring-border absolute top-0 left-0"
+          style={{
+            width: studio.canvasPreset.width,
+            height: studio.canvasPreset.height,
+            transform: `scale(${displayScale})`,
+            transformOrigin: "top left",
+          }}
+        >
           <canvas ref={canvasElRef} />
         </div>
       </div>
