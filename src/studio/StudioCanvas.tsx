@@ -189,6 +189,7 @@ export function StudioCanvas() {
       for (const layer of studio.layers) {
         await ensureFontReady(layer.fontFamily);
         let tb = existing.get(layer.id);
+        const isNew = !tb;
         if (!tb) {
           tb = new fabric.Textbox(layer.text, {
             left: layer.left,
@@ -200,8 +201,12 @@ export function StudioCanvas() {
           tb.set("data", { layerId: layer.id });
           c.add(tb);
         }
+        const isEditing = (tb as fabric.Textbox & { isEditing?: boolean }).isEditing;
+        // Only overwrite text if not currently being edited (preserves caret/selection)
+        if (!isEditing && tb.text !== layer.text) {
+          tb.set({ text: layer.text });
+        }
         tb.set({
-          text: layer.text,
           fontFamily: layer.fontFamily,
           fontSize: layer.fontSize,
           fill: layer.fill,
@@ -223,6 +228,10 @@ export function StudioCanvas() {
           strokeWidth: layer.effects.stroke ? layer.strokeWidth : 0,
           paintFirst: "stroke",
         });
+        // Apply per-character styles
+        if (isNew || !isEditing) {
+          tb.styles = layer.styles ? JSON.parse(JSON.stringify(layer.styles)) : {};
+        }
         tb.setCoords();
       }
       c.renderAll();
