@@ -95,6 +95,23 @@ function StudioInner() {
     toast.success("Page updated");
   };
 
+  const handleSelectPage = async (pageId: string) => {
+    if (studio.activePageId && studio.activePageId !== pageId) {
+      try {
+        const url = await renderToDataURL(buildOptions(), 1);
+        const thumb = await renderThumbnail(url);
+        studio.updateGeneratedPage(studio.activePageId, {
+          fullDataUrl: url,
+          thumbnail: thumb,
+          snapshot: studio.getEditorSnapshot(),
+        });
+      } catch (e) {
+        console.warn("auto-save before page switch failed", e);
+      }
+    }
+    studio.loadPageIntoEditor(pageId);
+  };
+
   const handleGenerate = async () => {
     if (studio.layers.length === 0 && studio.images.length === 0) {
       toast.error("Add at least one image or text layer");
@@ -269,7 +286,7 @@ function StudioInner() {
             </div>
           )}
         </div>
-        <PagesStrip onAddPage={handleAddCurrent} onRerender={handleRerenderActive} />
+        <PagesStrip onAddPage={handleAddCurrent} onRerender={handleRerenderActive} onSelectPage={handleSelectPage} />
         <RightPanel />
       </div>
     </div>
