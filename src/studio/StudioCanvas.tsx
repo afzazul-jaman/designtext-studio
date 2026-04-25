@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
 import { useStudio } from "./store";
 import { applyBackground } from "./canvasRenderer";
@@ -8,6 +8,7 @@ export function StudioCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<fabric.Canvas | null>(null);
+  const [displayScale, setDisplayScale] = useState(1);
   const studio = useStudio();
   const studioRef = useRef(studio);
   studioRef.current = studio;
@@ -51,6 +52,14 @@ export function StudioCanvas() {
       if (obj?.data?.layerId) studioRef.current.setActiveLayer(obj.data.layerId);
     });
     c.on("selection:cleared", () => studioRef.current.setActiveLayer(null));
+    c.on("mouse:dblclick", (e) => {
+      const target = e.target as fabric.Textbox | undefined;
+      const layerId = (target as fabric.Object & { data?: { layerId?: string } })?.data?.layerId;
+      if (!target || !layerId || !(target instanceof fabric.Textbox)) return;
+      studioRef.current.setActiveLayer(layerId);
+      target.enterEditing();
+      target.hiddenTextarea?.focus();
+    });
 
     return () => {
       c.dispose();
@@ -71,10 +80,11 @@ export function StudioCanvas() {
       const aw = wrapper.clientWidth - padding;
       const ah = wrapper.clientHeight - padding;
       const scale = Math.min(aw / studio.canvasPreset.width, ah / studio.canvasPreset.height, 1);
+      setDisplayScale(scale);
       const el = c.getElement().parentElement?.parentElement as HTMLElement | null;
       if (el) {
         el.style.transform = `scale(${scale})`;
-        el.style.transformOrigin = "center center";
+        el.style.transformOrigin = "top left";
       }
     };
     resize();
@@ -143,13 +153,12 @@ export function StudioCanvas() {
             selectable: false, evented: false,
           });
         }
-        if (overlayObj) {
-          c.add(overlayObj);
-          // Move overlay below text layers
-          const textObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
-          textObjs.forEach((t) => c.bringObjectToFront(t));
-        }
+        if (overlayObj) c.add(overlayObj);
       }
+      const textObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
+      const bgObjs = c.getObjects().filter((o) => !(o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
+      bgObjs.forEach((obj) => c.sendObjectToBack(obj));
+      textObjs.forEach((obj) => c.bringObjectToFront(obj));
       c.renderAll();
     })();
     return () => { cancelled = true; };
@@ -280,7 +289,7 @@ export function StudioCanvas() {
           backgroundSize: "24px 24px",
         }}
       />
-      <div className="relative" style={{ width: studio.canvasPreset.width, height: studio.canvasPreset.height }}>
+      <div className="relative" style={{ width: studio.canvasPreset.width * displayScale, height: studio.canvasPreset.height * displayScale }}>
         <div className="shadow-panel rounded-lg overflow-hidden ring-1 ring-border" style={{ width: studio.canvasPreset.width, height: studio.canvasPreset.height }}>
           <canvas ref={canvasElRef} />
         </div>

@@ -9,9 +9,10 @@ import { cn } from "@/lib/utils";
 type Props = {
   onAddPage: () => void;
   onRerender: () => void;
+  onSelectPage: (pageId: string) => void | Promise<void>;
 };
 
-export function PagesStrip({ onAddPage, onRerender }: Props) {
+export function PagesStrip({ onAddPage, onRerender, onSelectPage }: Props) {
   const studio = useStudio();
 
   return (
@@ -64,7 +65,7 @@ export function PagesStrip({ onAddPage, onRerender }: Props) {
                     "relative group rounded-md overflow-hidden ring-2 transition-all cursor-pointer bg-muted",
                     isActive ? "ring-primary shadow-glow" : "ring-border hover:ring-primary/60"
                   )}
-                  onClick={() => studio.loadPageIntoEditor(p.id)}
+                  onClick={() => onSelectPage(p.id)}
                   title="Click to edit this page"
                 >
                   <img
