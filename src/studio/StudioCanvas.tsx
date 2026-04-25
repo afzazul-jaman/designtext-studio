@@ -121,11 +121,6 @@ export function StudioCanvas() {
       const ah = wrapper.clientHeight - padding;
       const scale = Math.min(aw / studio.canvasPreset.width, ah / studio.canvasPreset.height, 1);
       setDisplayScale(scale);
-      const el = c.getElement().parentElement?.parentElement as HTMLElement | null;
-      if (el) {
-        el.style.transform = `scale(${scale})`;
-        el.style.transformOrigin = "top left";
-      }
     };
     resize();
     const ro = new ResizeObserver(resize);
