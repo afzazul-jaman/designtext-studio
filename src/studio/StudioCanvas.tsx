@@ -32,6 +32,7 @@ export function StudioCanvas() {
         top: tb.top ?? 0,
         width: tb.width ?? 100,
         fontSize: Math.round((tb.fontSize ?? 16) * (tb.scaleX ?? 1)),
+        styles: tb.styles ? JSON.parse(JSON.stringify(tb.styles)) : undefined,
       });
       tb.set({ scaleX: 1, scaleY: 1 });
       c.renderAll();
@@ -40,7 +41,10 @@ export function StudioCanvas() {
     c.on("text:changed", (e) => {
       const tb = e.target as fabric.Textbox & { data?: { layerId?: string } };
       if (!tb.data?.layerId) return;
-      studioRef.current.updateLayer(tb.data.layerId, { text: tb.text ?? "" });
+      studioRef.current.updateLayer(tb.data.layerId, {
+        text: tb.text ?? "",
+        styles: tb.styles ? JSON.parse(JSON.stringify(tb.styles)) : undefined,
+      });
     });
 
     c.on("selection:created", (e) => {
