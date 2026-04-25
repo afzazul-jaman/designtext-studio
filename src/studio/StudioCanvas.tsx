@@ -4,6 +4,40 @@ import { useStudio } from "./store";
 import { applyBackground } from "./canvasRenderer";
 import { ensureFontReady } from "./fontLoader";
 
+// Module-level reference so other panels (e.g. color picker) can apply styles
+// to the currently-edited text selection without prop-drilling the canvas.
+let activeFabricCanvas: fabric.Canvas | null = null;
+export function getActiveFabricCanvas(): fabric.Canvas | null {
+  return activeFabricCanvas;
+}
+
+/**
+ * If a Textbox is currently in editing mode and has a character selection,
+ * apply the given style patch to that range and persist it back into the layer.
+ * Returns true if applied, false if no active editing/selection.
+ */
+export function applyStyleToSelection(
+  patch: Record<string, unknown>,
+  updateLayer: (id: string, updates: Record<string, unknown>) => void
+): boolean {
+  const c = activeFabricCanvas;
+  if (!c) return false;
+  const obj = c.getActiveObject() as (fabric.Textbox & { isEditing?: boolean; data?: { layerId?: string } }) | null;
+  if (!obj || !(obj instanceof fabric.Textbox)) return false;
+  if (!obj.isEditing) return false;
+  const start = obj.selectionStart ?? 0;
+  const end = obj.selectionEnd ?? 0;
+  if (start === end) return false;
+  obj.setSelectionStyles(patch, start, end);
+  c.requestRenderAll();
+  if (obj.data?.layerId) {
+    updateLayer(obj.data.layerId, {
+      styles: obj.styles ? JSON.parse(JSON.stringify(obj.styles)) : undefined,
+    });
+  }
+  return true;
+}
+
 export function StudioCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
