@@ -55,6 +55,7 @@ export function StudioCanvas() {
       backgroundColor: "#1a1a2e",
     });
     fabricRef.current = c;
+    activeFabricCanvas = c;
 
     c.on("object:modified", (e) => {
       const obj = e.target as fabric.Object & { data?: { layerId?: string } };
