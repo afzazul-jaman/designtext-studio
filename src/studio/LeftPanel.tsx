@@ -14,6 +14,7 @@ import { useStudio } from "./store";
 import { CSVData, COLOR_PALETTE, FONT_LIBRARY, TEMPLATES } from "./types";
 import { extractPlaceholders } from "./canvasRenderer";
 import { loadGoogleFont } from "./fontLoader";
+import { applyStyleToSelection } from "./StudioCanvas";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
