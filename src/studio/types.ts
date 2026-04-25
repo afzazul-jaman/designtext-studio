@@ -36,6 +36,8 @@ export type TextLayer = {
   };
   strokeColor: string;
   strokeWidth: number;
+  // per-character styling map: { lineIdx: { charIdx: { fill?, fontWeight?, ... } } }
+  styles?: Record<number, Record<number, Record<string, unknown>>>;
 };
 
 export type UploadedImage = {
