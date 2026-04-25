@@ -395,27 +395,39 @@ export function LeftPanel() {
                 <Type className="w-4 h-4 mr-2" /> Add Text Layer
               </Button>
 
-              {studio.csv && studio.csv.headers.length > 0 && (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold">Insert CSV Field</h3>
-                  <p className="text-[11px] text-muted-foreground">Click a field to add it to the selected text layer.</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {studio.csv.headers.map((h) => (
-                      <button
-                        key={h}
-                        onClick={() => {
-                          studio.insertTextIntoActiveLayer(`{${h}}`);
-                          studio.setMapping(h, h);
-                          toast.success(`Inserted {${h}}`);
-                        }}
-                        className="text-xs px-2.5 py-1 rounded-full bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-all font-mono"
-                      >
-                        + {`{${h}}`}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
+              {studio.csv && studio.csv.headers.length > 0 && (() => {
+                const firstSelectedIdx = Array.from(studio.enabledRows).sort((a, b) => a - b)[0];
+                const sampleRow = firstSelectedIdx != null ? studio.csv!.rows[firstSelectedIdx] : studio.csv!.rows[0];
+                return (
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-semibold">Insert CSV Field</h3>
+                    <p className="text-[11px] text-muted-foreground">Click a field to add it to the selected text layer.</p>
+                    <div className="flex flex-col gap-1.5">
+                      {studio.csv!.headers.map((h) => {
+                        const sample = sampleRow?.[h] ?? "";
+                        return (
+                          <button
+                            key={h}
+                            onClick={() => {
+                              studio.insertTextIntoActiveLayer(`{${h}}`);
+                              studio.setMapping(h, h);
+                              toast.success(`Inserted {${h}}`);
+                            }}
+                            className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 hover:bg-primary/20 transition-all text-left"
+                          >
+                            <span className="font-mono text-primary text-[10px] shrink-0 px-1.5 py-0.5 rounded bg-primary/15 border border-primary/30">
+                              {`{${h}}`}
+                            </span>
+                            <span className="truncate flex-1 text-muted-foreground italic">
+                              {sample ? `e.g. ${sample}` : "(empty)"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })()}
 
               {studio.layers.length > 0 && (
                 <section className="space-y-2">
