@@ -116,11 +116,11 @@ export function StudioCanvas() {
     c.setHeight(studio.canvasPreset.height);
 
     const resize = () => {
-      const padding = 40;
+      const padding = 32;
       const aw = wrapper.clientWidth - padding;
       const ah = wrapper.clientHeight - padding;
-      const scale = Math.min(aw / studio.canvasPreset.width, ah / studio.canvasPreset.height, 1);
-      setDisplayScale(scale);
+      const scale = Math.min(aw / studio.canvasPreset.width, ah / studio.canvasPreset.height);
+      setDisplayScale(scale > 0 ? scale : 1);
     };
     resize();
     const ro = new ResizeObserver(resize);
