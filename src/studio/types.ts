@@ -27,7 +27,7 @@ export type TextLayer = {
   width: number;
   opacity: number;
   lineHeight: number;
-  charSpacing: number; // fabric uses 1/1000 em
+  charSpacing: number;
   effects: {
     shadow: boolean;
     stroke: boolean;
@@ -36,8 +36,21 @@ export type TextLayer = {
   };
   strokeColor: string;
   strokeWidth: number;
-  // per-character styling map: { lineIdx: { charIdx: { fill?, fontWeight?, ... } } }
   styles?: Record<number, Record<number, Record<string, unknown>>>;
+};
+
+// ★ NEW: SVG shape element for decorative overlays
+export type SvgElement = {
+  id: string;
+  name: string;
+  svgContent: string; // raw SVG markup
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  angle: number;
+  opacity: number;
+  fill?: string | null; // color override — replaces fills in SVG
 };
 
 export type UploadedImage = {
@@ -56,6 +69,7 @@ export type BackgroundOverlay = "none" | "dark" | "light" | "vignette";
 
 export type PageSnapshot = {
   layers: TextLayer[];
+  svgElements: SvgElement[]; // ★ NEW
   imageId: string | null;
   bgMode: "image" | "color" | "gradient";
   bgColor: string;
@@ -162,7 +176,7 @@ export const TEMPLATES: {
     preview: "linear-gradient(135deg, #1e293b, #0f172a)",
     layers: [
       {
-        text: "“A good design speaks for itself.”",
+        text: "\u201CA good design speaks for itself.\u201D",
         fontFamily: "Playfair Display",
         fontSize: 72,
         fill: "#ffffff",

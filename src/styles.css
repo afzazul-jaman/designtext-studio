@@ -148,7 +148,11 @@
   }
 
   html, body, #root {
-    height: 100%;
+     height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
   }
 
   body {
@@ -156,6 +160,7 @@
     color: var(--color-foreground);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-font-smoothing: antialiased;
+    overflow: hidden;
   }
 
   /* Custom scrollbar */
