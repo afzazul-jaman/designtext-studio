@@ -1,4 +1,4 @@
-import { useRef, useState, DragEvent } from "react";
+import { useRef, useState, DragEvent, useEffect } from "react";
 import Papa from "papaparse";
 import { Upload, X, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, Image as ImageIcon, Type, Sparkles, Palette as PaletteIcon, Wand2, FileText, Hexagon, Copy, RotateCw, Plus, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,16 @@ export function LeftPanel() {
   const [editingLibId, setEditingLibId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
 
+  // ★ FIX: Use LOCAL state for which SVG card is expanded.
+  // This prevents the card from collapsing when canvas selection:cleared fires
+  // (which happens when you click the native color picker dialog).
+  const [expandedSvgId, setExpandedSvgId] = useState<string | null>(null);
+
+  // Sync: when user clicks an SVG on canvas, expand its card here too
+  useEffect(() => {
+    if (studio.activeSvgId) setExpandedSvgId(studio.activeSvgId);
+  }, [studio.activeSvgId]);
+
   const placeholders = extractPlaceholders(studio.layers);
   const mappedCount = placeholders.filter((p) => studio.fieldMapping[p]).length;
   const mappingProgress = placeholders.length > 0 ? (mappedCount / placeholders.length) * 100 : 0;
@@ -46,7 +56,6 @@ export function LeftPanel() {
     });
   };
 
-  // ★ SVG upload → save to library + add to canvas
   const handleSvgUpload = (files: FileList | null) => {
     if (!files) return;
     Array.from(files).forEach((file) => {
@@ -56,9 +65,7 @@ export function LeftPanel() {
       reader.onload = () => {
         const content = reader.result as string;
         const name = file.name.replace(/\.svg$/i, "");
-        // Save to persistent library
         studio.addToSvgLibrary(content, name);
-        // Also add to current canvas
         studio.addSvgElement(content, name);
         toast.success(`Added "${name}" to library & canvas`);
       };
@@ -76,7 +83,6 @@ export function LeftPanel() {
   };
 
   const activeImage = studio.images.find((i) => i.id === studio.activeImageId);
-  const activeSvg = studio.svgElements.find((e) => e.id === studio.activeSvgId);
 
   return (
     <aside className="w-[340px] border-r border-border bg-card flex flex-col h-full min-h-0">
@@ -146,41 +152,67 @@ export function LeftPanel() {
           </div></ScrollArea>
         </TabsContent>
 
-        {/* ★ SHAPES TAB — with persistent library + rename */}
+        {/* ★ SHAPES TAB — uses expandedSvgId (local state) instead of activeSvgId */}
         <TabsContent value="shapes" className="flex-1 overflow-hidden m-0 min-h-0 data-[state=inactive]:hidden">
           <ScrollArea className="h-full"><div className="p-4 space-y-4">
             <input ref={svgRef} type="file" accept=".svg,image/svg+xml" multiple className="hidden" onChange={(e) => handleSvgUpload(e.target.files)} />
             <Button variant="outline" className="w-full" onClick={() => svgRef.current?.click()}><Upload className="w-4 h-4 mr-2" /> Upload SVG Shape</Button>
-            <p className="text-[10px] text-muted-foreground">Upload <code className="px-1 py-0.5 bg-muted rounded">.svg</code> files. They're saved to your library and persist after refresh.</p>
+            <p className="text-[10px] text-muted-foreground">Upload <code className="px-1 py-0.5 bg-muted rounded">.svg</code> files. Saved to your library, persists after refresh.</p>
 
             {/* On-canvas shapes */}
             {studio.svgElements.length > 0 && (
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">On Canvas ({studio.svgElements.length})</h3>
                 <div className="space-y-2">{studio.svgElements.map((el) => {
-                  const isActive = studio.activeSvgId === el.id;
+                  // ★ FIX: Use expandedSvgId (local state) — won't collapse when color picker opens
+                  const isExpanded = expandedSvgId === el.id;
                   const previewUrl = svgToDataUrl(el.svgContent);
-                  return (<div key={el.id} onClick={() => studio.setActiveSvgId(el.id)} className={cn("rounded-md border p-2 cursor-pointer transition-all", isActive ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-border hover:bg-muted/50")}>
+                  return (<div key={el.id}
+                    onClick={() => {
+                      studio.setActiveSvgId(el.id);
+                      setExpandedSvgId(el.id);
+                    }}
+                    className={cn("rounded-md border p-2 cursor-pointer transition-all", isExpanded ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-border hover:bg-muted/50")}>
                     <div className="flex items-center gap-2">
                       <div className="w-10 h-10 rounded bg-muted/50 flex items-center justify-center shrink-0 overflow-hidden border border-border"><img src={previewUrl} alt={el.name} className="w-8 h-8 object-contain" /></div>
                       <span className="text-xs font-medium truncate flex-1">{el.name}</span>
                       <div className="flex gap-0.5 shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); studio.duplicateSvgElement(el.id); toast.success("Duplicated"); }} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title="Duplicate"><Copy className="w-3 h-3" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); studio.removeSvgElement(el.id); }} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive" title="Remove from canvas"><Trash2 className="w-3 h-3" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); studio.removeSvgElement(el.id); if (expandedSvgId === el.id) setExpandedSvgId(null); }} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive" title="Remove"><Trash2 className="w-3 h-3" /></button>
                       </div>
                     </div>
-                    {isActive && (<div className="mt-3 space-y-2 pt-2 border-t border-border animate-fade-in">
+
+                    {/* ★ Controls — stays open because expandedSvgId is local state */}
+                    {isExpanded && (<div className="mt-3 space-y-2 pt-2 border-t border-border animate-fade-in"
+                      onClick={(e) => e.stopPropagation()} /* prevent re-triggering parent onClick */
+                    >
                       <div className="space-y-1"><Label className="text-xs flex items-center justify-between">Opacity <span className="text-muted-foreground">{Math.round(el.opacity * 100)}%</span></Label><Slider value={[el.opacity]} min={0} max={1} step={0.05} onValueChange={(v) => studio.updateSvgElement(el.id, { opacity: v[0] })} /></div>
                       <div className="space-y-1"><Label className="text-xs flex items-center justify-between">Rotation <span className="text-muted-foreground">{Math.round(el.angle)}°</span></Label><div className="flex gap-2 items-center"><Slider value={[el.angle]} min={0} max={360} step={1} className="flex-1" onValueChange={(v) => studio.updateSvgElement(el.id, { angle: v[0] })} /><Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => studio.updateSvgElement(el.id, { angle: 0 })}><RotateCw className="w-3 h-3" /></Button></div></div>
                       <div className="grid grid-cols-2 gap-2"><div><Label className="text-xs">W</Label><Input type="number" className="h-8 text-xs" value={Math.round(el.width)} onChange={(e) => studio.updateSvgElement(el.id, { width: Number(e.target.value) || 50 })} /></div><div><Label className="text-xs">H</Label><Input type="number" className="h-8 text-xs" value={Math.round(el.height)} onChange={(e) => studio.updateSvgElement(el.id, { height: Number(e.target.value) || 50 })} /></div></div>
-                      <div className="space-y-1"><Label className="text-xs">Color Override</Label><div className="flex gap-2"><input type="color" value={el.fill ?? "#ffffff"} onChange={(e) => studio.updateSvgElement(el.id, { fill: e.target.value })} className="w-10 h-8 rounded cursor-pointer bg-transparent border border-border" />{el.fill && <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => studio.updateSvgElement(el.id, { fill: null })}>Reset</Button>}</div></div>
+
+                      {/* ★ Color Override — stopPropagation on the input prevents panel collapse */}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Color Override</Label>
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={el.fill ?? "#ffffff"}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onChange={(e) => studio.updateSvgElement(el.id, { fill: e.target.value })}
+                            className="w-10 h-8 rounded cursor-pointer bg-transparent border border-border"
+                          />
+                          {el.fill && <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={(e) => { e.stopPropagation(); studio.updateSvgElement(el.id, { fill: null }); }}>Reset</Button>}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Changes all colors in the SVG.</p>
+                      </div>
                     </div>)}
                   </div>);
                 })}</div>
               </section>
             )}
 
-            {/* ★ Persistent SVG Library */}
+            {/* Persistent SVG Library */}
             <section className="space-y-2 pt-2 border-t border-border">
               <h3 className="text-sm font-semibold">My Shape Library ({studio.svgLibrary.length})</h3>
               <p className="text-[10px] text-muted-foreground">Saved shapes persist after refresh. Click <Plus className="inline w-3 h-3" /> to add to canvas.</p>
@@ -212,13 +244,12 @@ export function LeftPanel() {
                         ) : (
                           <span className="text-[10px] text-center truncate w-full">{item.name}</span>
                         )}
-                        {/* Actions */}
                         <div className="absolute top-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => { studio.addSvgFromLibrary(item.id); toast.success(`Added "${item.name}" to canvas`); }}
                             className="bg-primary text-primary-foreground rounded p-0.5" title="Add to canvas"><Plus className="w-3 h-3" /></button>
                           <button onClick={() => { setEditingLibId(item.id); setEditingName(item.name); }}
                             className="bg-muted text-foreground rounded p-0.5" title="Rename"><Pencil className="w-2.5 h-2.5" /></button>
-                          <button onClick={() => { studio.removeFromSvgLibrary(item.id); toast.success("Removed from library"); }}
+                          <button onClick={() => { studio.removeFromSvgLibrary(item.id); toast.success("Removed"); }}
                             className="bg-destructive text-destructive-foreground rounded p-0.5" title="Delete"><Trash2 className="w-2.5 h-2.5" /></button>
                         </div>
                       </div>
@@ -230,13 +261,15 @@ export function LeftPanel() {
           </div></ScrollArea>
         </TabsContent>
 
-        {/* EFFECTS TAB */}
+        {/* EFFECTS TAB — ★ FIX: null check prevents crash */}
         <TabsContent value="effects" className="flex-1 overflow-hidden m-0 min-h-0 data-[state=inactive]:hidden">
           <ScrollArea className="h-full"><div className="p-4 space-y-3">
             <h3 className="text-sm font-semibold">Text Effects</h3>
             {!studio.activeLayerId && <p className="text-xs text-muted-foreground">Select a text layer to apply effects.</p>}
             {studio.activeLayerId && (() => {
-              const l = studio.layers.find((x) => x.id === studio.activeLayerId)!;
+              const l = studio.layers.find((x) => x.id === studio.activeLayerId);
+              // ★ FIX: null check — prevents "Cannot read properties of undefined (reading 'effects')"
+              if (!l) return <p className="text-xs text-muted-foreground">Layer not found.</p>;
               const Toggle = ({ k, label }: { k: keyof typeof l.effects; label: string }) => (
                 <button onClick={() => studio.updateLayer(l.id, { effects: { ...l.effects, [k]: !l.effects[k] } })} className={cn("w-full flex items-center justify-between p-3 rounded-md border transition-all", l.effects[k] ? "border-primary bg-primary/10 shadow-glow" : "border-border hover:bg-muted/50")}><span className="text-sm font-medium">{label}</span><span className={cn("text-xs px-2 py-0.5 rounded-full", l.effects[k] ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>{l.effects[k] ? "ON" : "OFF"}</span></button>);
               return (<div className="space-y-2"><Toggle k="shadow" label="Drop Shadow" /><Toggle k="glow" label="Glow" /><Toggle k="stroke" label="Stroke / Outline" />

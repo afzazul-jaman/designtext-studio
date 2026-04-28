@@ -59,7 +59,9 @@ function StudioInner() {
 
   const handleGenerate = async () => {
     if (!studio.layers.length && !studio.images.length) { toast.error("Add content first"); return; }
-    const imgs = studio.images; const hasCsv = !!studio.csv;
+    // ★ FIX: take a fresh copy of images at generate time (not stale closure)
+    const imgs = [...studio.images];
+    const hasCsv = !!studio.csv;
     const ei = hasCsv ? Array.from(studio.enabledRows).sort((a, b) => a - b) : [];
     if (!hasCsv && imgs.length <= 1) { await handleAddCurrent(); return; }
     if (hasCsv && !ei.length) { toast.error("No rows selected"); return; }
@@ -71,7 +73,7 @@ function StudioInner() {
     try {
       for (let i = 0; i < total; i++) {
         const row = hasCsv ? studio.csv!.rows[ei[i]] : null;
-        let pi = imgs.length > 0 ? (hasCsv ? imgs[i % imgs.length] : imgs[i]) : null;
+        const pi = imgs.length > 0 ? (hasCsv ? imgs[i % imgs.length] : imgs[i]) : null;
         const extras: Record<string, string> = pi ? { filename: filenameToTitle(pi.name) } : {};
         const sub = tl.map((l) => ({ ...l, effects: { ...l.effects }, styles: l.styles ? JSON.parse(JSON.stringify(l.styles)) : undefined, text: substitutePlaceholders(l.text, row, tm, extras) }));
         const opts = { width: studio.canvasPreset.width, height: studio.canvasPreset.height, bgMode: imgs.length > 0 ? "image" as const : tbm, bgColor: tbc, gradientFrom: tgf, gradientTo: tgt, overlay: tov, layers: sub, backgroundImageUrl: pi?.dataUrl ?? null, svgElements: tSvgs };
@@ -88,12 +90,18 @@ function StudioInner() {
   const handleExport = async () => {
     if (studio.activePageId) { try { const url = await renderToDataURL(buildOptions(), 1); const thumb = await renderThumbnail(url); studio.updateGeneratedPage(studio.activePageId, { fullDataUrl: url, thumbnail: thumb, snapshot: studio.getEditorSnapshot() }); } catch {} }
     const pa = studio.activePageId ? studio.generated.map((p) => p.id === studio.activePageId ? { ...p, snapshot: studio.getEditorSnapshot() } : p) : studio.generated;
-    if (!pa.length) { const ai = studio.images.find((i) => i.id === studio.activeImageId); const url = await renderToDataURL(buildOptions(), 2); saveAs(url, ai ? `${stripExtension(ai.name)}.png` : "design.png"); toast.success("Exported"); return; }
+    if (!pa.length) {
+      const ai = studio.images.find((i) => i.id === studio.activeImageId);
+      // ★ FIX: export at 1x — same size as canvas (1000x1500 → 1000x1500)
+      const url = await renderToDataURL(buildOptions(), 1);
+      saveAs(url, ai ? `${stripExtension(ai.name)}.png` : "design.png"); toast.success("Exported"); return;
+    }
     setGenerating(true); setProgress(0);
     try {
       const fresh: { name: string; dataUrl: string }[] = []; const used = new Map<string, number>();
       for (let i = 0; i < pa.length; i++) {
-        const url = await renderToDataURL(optionsFromSnapshot(pa[i].snapshot), 2);
+        // ★ FIX: export at 1x
+        const url = await renderToDataURL(optionsFromSnapshot(pa[i].snapshot), 1);
         let name = getExportName(pa[i], i); const bn = stripExtension(name); const cnt = used.get(name) ?? 0;
         if (cnt > 0) name = `${bn} (${cnt}).png`; used.set(name, cnt + 1);
         fresh.push({ name, dataUrl: url }); setProgress(Math.round(((i + 1) / pa.length) * 60)); await new Promise((r) => setTimeout(r, 0));

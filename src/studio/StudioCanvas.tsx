@@ -47,14 +47,10 @@ function buildFabricShadow(layer: { effects: { shadow: boolean; glow: boolean };
   return null;
 }
 
-// ★ Alignment guides
+// Alignment guides — LIGHT BLUE
 const SNAP_THRESHOLD = 8;
-type GuideLine = { orientation: "h" | "v"; position: number };
-
-function createGuideLines(canvas: fabric.Canvas): fabric.Line[] {
-  const lines: fabric.Line[] = [];
-  return lines;
-}
+const GUIDE_COLOR = "#38bdf8";
+const GUIDE_WIDTH = 1.5;
 
 function clearGuideLines(canvas: fabric.Canvas) {
   const toRemove = canvas.getObjects().filter((o) => (o as fabric.Object & { data?: { guideLine?: boolean } }).data?.guideLine);
@@ -65,8 +61,8 @@ function showGuide(canvas: fabric.Canvas, orientation: "h" | "v", pos: number) {
   const w = canvas.getWidth(), h = canvas.getHeight();
   const coords = orientation === "v" ? [pos, 0, pos, h] : [0, pos, w, pos];
   const line = new fabric.Line(coords, {
-    stroke: "#7c3aed", strokeWidth: 1, strokeDashArray: [4, 4],
-    selectable: false, evented: false, opacity: 0.8,
+    stroke: GUIDE_COLOR, strokeWidth: GUIDE_WIDTH, strokeDashArray: [6, 3],
+    selectable: false, evented: false, opacity: 1,
   });
   line.set("data", { guideLine: true });
   canvas.add(line);
@@ -81,17 +77,15 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
   const objLeft = bound.left, objRight = bound.left + bound.width;
   const objTop = bound.top, objBottom = bound.top + bound.height;
 
-  // Canvas center/edges
-  const targets: { val: number; guide: number; axis: "x" | "y"; type: "center" | "edge" }[] = [
-    { val: objCenterX, guide: cw / 2, axis: "x", type: "center" },
-    { val: objCenterY, guide: ch / 2, axis: "y", type: "center" },
-    { val: objLeft, guide: 0, axis: "x", type: "edge" },
-    { val: objRight, guide: cw, axis: "x", type: "edge" },
-    { val: objTop, guide: 0, axis: "y", type: "edge" },
-    { val: objBottom, guide: ch, axis: "y", type: "edge" },
+  const targets: { val: number; guide: number; axis: "x" | "y" }[] = [
+    { val: objCenterX, guide: cw / 2, axis: "x" },
+    { val: objCenterY, guide: ch / 2, axis: "y" },
+    { val: objLeft, guide: 0, axis: "x" },
+    { val: objRight, guide: cw, axis: "x" },
+    { val: objTop, guide: 0, axis: "y" },
+    { val: objBottom, guide: ch, axis: "y" },
   ];
 
-  // Other objects
   canvas.getObjects().forEach((other) => {
     const d = (other as fabric.Object & { data?: { layerId?: string; svgId?: string; guideLine?: boolean } }).data;
     if (!d?.layerId && !d?.svgId) return;
@@ -99,14 +93,14 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
     const ob = other.getBoundingRect();
     const ocx = ob.left + ob.width / 2, ocy = ob.top + ob.height / 2;
     targets.push(
-      { val: objCenterX, guide: ocx, axis: "x", type: "center" },
-      { val: objCenterY, guide: ocy, axis: "y", type: "center" },
-      { val: objLeft, guide: ob.left, axis: "x", type: "edge" },
-      { val: objRight, guide: ob.left + ob.width, axis: "x", type: "edge" },
-      { val: objTop, guide: ob.top, axis: "y", type: "edge" },
-      { val: objBottom, guide: ob.top + ob.height, axis: "y", type: "edge" },
-      { val: objLeft, guide: ob.left + ob.width, axis: "x", type: "edge" },
-      { val: objRight, guide: ob.left, axis: "x", type: "edge" },
+      { val: objCenterX, guide: ocx, axis: "x" },
+      { val: objCenterY, guide: ocy, axis: "y" },
+      { val: objLeft, guide: ob.left, axis: "x" },
+      { val: objRight, guide: ob.left + ob.width, axis: "x" },
+      { val: objTop, guide: ob.top, axis: "y" },
+      { val: objBottom, guide: ob.top + ob.height, axis: "y" },
+      { val: objLeft, guide: ob.left + ob.width, axis: "x" },
+      { val: objRight, guide: ob.left, axis: "x" },
     );
   });
 
@@ -114,15 +108,11 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
   for (const t of targets) {
     if (Math.abs(t.val - t.guide) < SNAP_THRESHOLD) {
       if (t.axis === "x" && snapX === null) {
-        const diff = t.guide - t.val;
-        obj.set("left", (obj.left ?? 0) + diff);
-        snapX = t.guide;
-        showGuide(canvas, "v", t.guide);
+        obj.set("left", (obj.left ?? 0) + (t.guide - t.val));
+        snapX = t.guide; showGuide(canvas, "v", t.guide);
       } else if (t.axis === "y" && snapY === null) {
-        const diff = t.guide - t.val;
-        obj.set("top", (obj.top ?? 0) + diff);
-        snapY = t.guide;
-        showGuide(canvas, "h", t.guide);
+        obj.set("top", (obj.top ?? 0) + (t.guide - t.val));
+        snapY = t.guide; showGuide(canvas, "h", t.guide);
       }
     }
   }
@@ -139,10 +129,23 @@ export function StudioCanvas() {
 
   useEffect(() => {
     if (!canvasElRef.current) return;
+
+    // Set selection style — light blue, more visible (wrapped in try-catch for safety)
+    try {
+      fabric.Object.prototype.set({
+        borderColor: GUIDE_COLOR,
+        cornerColor: GUIDE_COLOR,
+        cornerStrokeColor: "#ffffff",
+        cornerStyle: "circle",
+        cornerSize: 10,
+        transparentCorners: false,
+        borderScaleFactor: 2,
+      });
+    } catch { /* fabric version may not support all properties */ }
+
     const c = new fabric.Canvas(canvasElRef.current, { preserveObjectStacking: true, backgroundColor: "#1a1a2e" });
     fabricRef.current = c; activeFabricCanvas = c;
 
-    // ★ Alignment guides on move
     c.on("object:moving", (e) => { if (e.target) snapAndGuide(c, e.target); });
     c.on("object:moved", () => clearGuideLines(c));
 
@@ -216,7 +219,7 @@ export function StudioCanvas() {
     return () => { cancelled = true; };
   }, [studio.images, studio.activeImageId, studio.overlay, studio.bgMode, studio.bgColor, studio.gradientFrom, studio.gradientTo]);
 
-  // Sync SVG elements
+  // Sync SVG elements — fixed duplicate on color change
   useEffect(() => {
     const c = fabricRef.current; if (!c) return;
     const existing = new Map<string, fabric.FabricImage>();
@@ -224,30 +227,40 @@ export function StudioCanvas() {
     const svgIds = new Set(studio.svgElements.map((e) => e.id));
     existing.forEach((obj, id) => { if (!svgIds.has(id)) c.remove(obj); });
 
+    let isCancelled = false;
     (async () => {
       for (const el of studio.svgElements) {
+        if (isCancelled) return;
         let img = existing.get(el.id);
-        const needsReload = !img || (img as fabric.FabricImage & { _appliedFill?: string | null })._appliedFill !== (el.fill ?? null);
+        const currentFill = img ? (img as any)._appliedFill ?? null : "__NONE__";
+        const targetFill = el.fill ?? null;
+        const needsReload = !img || currentFill !== targetFill;
+
         if (needsReload) {
+          if (img) { c.remove(img); existing.delete(el.id); }
           try {
-            if (img) c.remove(img);
             const newImg = await loadSvgAsFabricImage(el.svgContent, el.fill);
+            if (isCancelled) return;
             newImg.set("data", { svgId: el.id });
-            (newImg as fabric.FabricImage & { _appliedFill?: string | null })._appliedFill = el.fill ?? null;
-            c.add(newImg); img = newImg;
+            (newImg as any)._appliedFill = targetFill;
+            c.add(newImg);
+            img = newImg;
+            existing.set(el.id, newImg);
           } catch (err) { console.warn("SVG load fail:", el.name, err); continue; }
         }
-        const sx = el.width / (img.width || 1), sy = el.height / (img.height || 1);
-        img.set({ left: el.left, top: el.top, scaleX: sx, scaleY: sy, angle: el.angle, opacity: el.opacity, originX: "center", originY: "center" });
-        img.setCoords();
+        const sx = el.width / (img!.width || 1), sy = el.height / (img!.height || 1);
+        img!.set({ left: el.left, top: el.top, scaleX: sx, scaleY: sy, angle: el.angle, opacity: el.opacity, originX: "center", originY: "center" });
+        img!.setCoords();
       }
+      if (isCancelled) return;
       const textObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
       textObjs.forEach((o) => c.bringObjectToFront(o));
       c.renderAll();
     })();
+    return () => { isCancelled = true; };
   }, [studio.svgElements]);
 
-  // Sync text layers
+  // Sync text layers — font re-render fix
   useEffect(() => {
     const c = fabricRef.current; if (!c) return;
     const existing = new Map<string, fabric.Textbox>();
@@ -255,43 +268,60 @@ export function StudioCanvas() {
     const layerIds = new Set(studio.layers.map((l) => l.id));
     existing.forEach((obj, id) => { if (!layerIds.has(id)) c.remove(obj); });
 
+    let cancelled = false;
     (async () => {
       for (const layer of studio.layers) {
         await ensureFontReady(layer.fontFamily);
+        if (cancelled) return;
+
         let tb = existing.get(layer.id); const isNew = !tb;
         if (!tb) { tb = new fabric.Textbox(layer.text, { left: layer.left, top: layer.top, width: layer.width, originX: "center", originY: "center" }); tb.set("data", { layerId: layer.id }); c.add(tb); }
         if ((tb as fabric.Textbox & { isEditing?: boolean }).isEditing) continue;
         const displayText = previewSubstitute(layer.text, studio.previewRow, studio.fieldMapping);
         if (tb.text !== displayText) tb.set({ text: displayText });
+
+        const prevFont = tb.fontFamily;
         tb.set({
           fontFamily: layer.fontFamily, fontSize: layer.fontSize, fill: layer.fill,
           fontWeight: layer.fontWeight, fontStyle: layer.fontStyle, textAlign: layer.textAlign,
           opacity: layer.opacity, lineHeight: layer.lineHeight, charSpacing: layer.charSpacing,
           left: layer.left, top: layer.top, width: layer.width,
           shadow: buildFabricShadow(layer),
-          stroke: layer.effects.stroke ? layer.strokeColor : undefined,
-          strokeWidth: layer.effects.stroke ? layer.strokeWidth : 0, paintFirst: "stroke",
+          stroke: layer.effects?.stroke ? layer.strokeColor : undefined,
+          strokeWidth: layer.effects?.stroke ? layer.strokeWidth : 0, paintFirst: "stroke",
         });
+        if (prevFont !== layer.fontFamily) {
+          tb.set("dirty", true);
+          tb.initDimensions();
+        }
         if (isNew) tb.styles = layer.styles ? JSON.parse(JSON.stringify(layer.styles)) : {};
         tb.setCoords();
       }
-      c.renderAll();
+      if (!cancelled) c.renderAll();
     })();
+    return () => { cancelled = true; };
   }, [studio.layers, studio.previewRow, studio.fieldMapping]);
 
   // Sync active selection
-  useEffect(() => { const c = fabricRef.current; if (!c) return; if (!studio.activeLayerId) return; const obj = c.getObjects().find((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId === studio.activeLayerId); if (obj && c.getActiveObject() !== obj && !(obj as fabric.Textbox & { isEditing?: boolean }).isEditing) { c.setActiveObject(obj); c.renderAll(); } }, [studio.activeLayerId]);
+  useEffect(() => { const c = fabricRef.current; if (!c || !studio.activeLayerId) return; const obj = c.getObjects().find((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId === studio.activeLayerId); if (obj && c.getActiveObject() !== obj && !(obj as fabric.Textbox & { isEditing?: boolean }).isEditing) { c.setActiveObject(obj); c.renderAll(); } }, [studio.activeLayerId]);
   useEffect(() => { const c = fabricRef.current; if (!c || !studio.activeSvgId) return; const obj = c.getObjects().find((o) => (o as fabric.Object & { data?: { svgId?: string } }).data?.svgId === studio.activeSvgId); if (obj && c.getActiveObject() !== obj) { c.setActiveObject(obj); c.renderAll(); } }, [studio.activeSvgId]);
   useEffect(() => { const c = fabricRef.current; if (!c) return; if (!studio.activeLayerId && !studio.activeSvgId) { c.discardActiveObject(); c.renderAll(); } }, [studio.activeLayerId, studio.activeSvgId]);
 
   // Select all
   useEffect(() => { if (!studio.selectAllNonce) return; const c = fabricRef.current; if (!c) return; const all = c.getObjects().filter((o) => { const d = (o as fabric.Object & { data?: { layerId?: string; svgId?: string } }).data; return d?.layerId || d?.svgId; }); if (!all.length) return; c.discardActiveObject(); if (all.length === 1) c.setActiveObject(all[0]); else c.setActiveObject(new fabric.ActiveSelection(all, { canvas: c })); c.requestRenderAll(); }, [studio.selectAllNonce]);
 
-  // Keyboard
+  // Keyboard — delete works for both text layers and SVG
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && !(e.ctrlKey || e.metaKey) && studioRef.current.activeSvgId) { e.preventDefault(); studioRef.current.removeSvgElement(studioRef.current.activeSvgId); return; }
+      if ((e.key === "Delete" || e.key === "Backspace") && !(e.ctrlKey || e.metaKey)) {
+        if (studioRef.current.activeSvgId) { e.preventDefault(); studioRef.current.removeSvgElement(studioRef.current.activeSvgId); return; }
+        if (studioRef.current.activeLayerId) {
+          const c = fabricRef.current;
+          const obj = c?.getActiveObject() as (fabric.Textbox & { isEditing?: boolean }) | undefined;
+          if (!obj?.isEditing) { e.preventDefault(); studioRef.current.removeLayer(studioRef.current.activeLayerId); return; }
+        }
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
       if (k === "z" && !e.shiftKey) { e.preventDefault(); studioRef.current.undo(); }

@@ -10,6 +10,12 @@ const TEMPLATE_STORAGE_KEY = "designtext.savedTemplates.v1";
 const SVG_LIBRARY_KEY = "designtext.svgLibrary.v1";
 const HISTORY_LIMIT = 50;
 
+// ★ History entry now includes SVG elements too
+type HistoryEntry = {
+  layers: TextLayer[];
+  svgElements: SvgElement[];
+};
+
 type StudioContextValue = {
   images: UploadedImage[]; activeImageId: string | null;
   overlay: BackgroundOverlay; bgColor: string; bgMode: "image" | "color" | "gradient";
@@ -84,6 +90,11 @@ function cleanSvg(raw: string): string {
   return raw.replace(/^\uFEFF/, "").replace(/^\xEF\xBB\xBF/, "").trim();
 }
 
+/** Deep clone layers safely */
+function cloneLayers(layers: TextLayer[]): TextLayer[] {
+  return layers.map((l) => ({ ...l, effects: { ...l.effects }, shadowSettings: l.shadowSettings ? { ...l.shadowSettings } : undefined }));
+}
+
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
@@ -103,47 +114,56 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [generated, setGenerated] = useState<GeneratedPage[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
 
-  // SVG Library (persisted in localStorage)
+  // SVG Library
   const [svgLibrary, setSvgLibrary] = useState<SvgLibraryItem[]>(() => {
     try { const raw = localStorage.getItem(SVG_LIBRARY_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });
+  const persistSvgLibrary = useCallback((next: SvgLibraryItem[]) => { setSvgLibrary(next); try { localStorage.setItem(SVG_LIBRARY_KEY, JSON.stringify(next)); } catch {} }, []);
+  const addToSvgLibrary = useCallback((svgContent: string, name: string): string => { const id = newId("svglib"); persistSvgLibrary([{ id, name, svgContent: cleanSvg(svgContent), addedAt: Date.now() }, ...svgLibrary]); return id; }, [svgLibrary, persistSvgLibrary]);
+  const removeFromSvgLibrary = useCallback((id: string) => persistSvgLibrary(svgLibrary.filter((i) => i.id !== id)), [svgLibrary, persistSvgLibrary]);
+  const renameSvgLibraryItem = useCallback((id: string, name: string) => persistSvgLibrary(svgLibrary.map((i) => (i.id === id ? { ...i, name: name.trim() || i.name } : i))), [svgLibrary, persistSvgLibrary]);
 
-  const persistSvgLibrary = useCallback((next: SvgLibraryItem[]) => {
-    setSvgLibrary(next);
-    try { localStorage.setItem(SVG_LIBRARY_KEY, JSON.stringify(next)); } catch {}
-  }, []);
+  // ★ FIX: History now tracks both layers AND svgElements
+  const historyRef = useRef<HistoryEntry[]>([{ layers: [], svgElements: [] }]);
+  const historyIdxRef = useRef(0);
+  const skipHistoryRef = useRef(false);
+  const [, forceHistoryTick] = useState(0);
 
-  const addToSvgLibrary = useCallback((svgContent: string, name: string): string => {
-    const id = newId("svglib");
-    const cleaned = cleanSvg(svgContent);
-    const item: SvgLibraryItem = { id, name, svgContent: cleaned, addedAt: Date.now() };
-    persistSvgLibrary([item, ...svgLibrary]);
-    return id;
-  }, [svgLibrary, persistSvgLibrary]);
-
-  const removeFromSvgLibrary = useCallback((id: string) => {
-    persistSvgLibrary(svgLibrary.filter((i) => i.id !== id));
-  }, [svgLibrary, persistSvgLibrary]);
-
-  const renameSvgLibraryItem = useCallback((id: string, name: string) => {
-    persistSvgLibrary(svgLibrary.map((i) => (i.id === id ? { ...i, name: name.trim() || i.name } : i)));
-  }, [svgLibrary, persistSvgLibrary]);
-
-  // History
-  const historyRef = useRef<TextLayer[][]>([[]]); const historyIdxRef = useRef(0);
-  const skipHistoryRef = useRef(false); const [, forceHistoryTick] = useState(0);
+  // Track state changes for history
   useEffect(() => {
     if (skipHistoryRef.current) { skipHistoryRef.current = false; return; }
+    const entry: HistoryEntry = { layers: cloneLayers(layers), svgElements: svgElements.map((e) => ({ ...e })) };
     const head = historyRef.current[historyIdxRef.current];
-    if (JSON.stringify(head) === JSON.stringify(layers)) return;
+    if (JSON.stringify(head) === JSON.stringify(entry)) return;
     historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
-    historyRef.current.push(layers.map((l) => ({ ...l, effects: { ...l.effects } })));
-    if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift(); else historyIdxRef.current += 1;
+    historyRef.current.push(entry);
+    if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
+    else historyIdxRef.current += 1;
     forceHistoryTick((t) => t + 1);
-  }, [layers]);
-  const undo = useCallback(() => { if (historyIdxRef.current <= 0) return; historyIdxRef.current -= 1; skipHistoryRef.current = true; setLayers(historyRef.current[historyIdxRef.current].map((l) => ({ ...l, effects: { ...l.effects } }))); forceHistoryTick((t) => t + 1); }, []);
-  const redo = useCallback(() => { if (historyIdxRef.current >= historyRef.current.length - 1) return; historyIdxRef.current += 1; skipHistoryRef.current = true; setLayers(historyRef.current[historyIdxRef.current].map((l) => ({ ...l, effects: { ...l.effects } }))); forceHistoryTick((t) => t + 1); }, []);
-  const canUndo = historyIdxRef.current > 0; const canRedo = historyIdxRef.current < historyRef.current.length - 1;
+  }, [layers, svgElements]);
+
+  const undo = useCallback(() => {
+    if (historyIdxRef.current <= 0) return;
+    historyIdxRef.current -= 1;
+    skipHistoryRef.current = true;
+    const entry = historyRef.current[historyIdxRef.current];
+    setLayers(cloneLayers(entry.layers));
+    setSvgElements(entry.svgElements.map((e) => ({ ...e })));
+    forceHistoryTick((t) => t + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    historyIdxRef.current += 1;
+    skipHistoryRef.current = true;
+    const entry = historyRef.current[historyIdxRef.current];
+    setLayers(cloneLayers(entry.layers));
+    setSvgElements(entry.svgElements.map((e) => ({ ...e })));
+    forceHistoryTick((t) => t + 1);
+  }, []);
+
+  const canUndo = historyIdxRef.current > 0;
+  const canRedo = historyIdxRef.current < historyRef.current.length - 1;
 
   // Templates
   const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>(() => { try { const r = localStorage.getItem(TEMPLATE_STORAGE_KEY); return r ? JSON.parse(r) : []; } catch { return []; } });
@@ -164,8 +184,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const addImages = useCallback(async (files: File[]) => {
     const ni: UploadedImage[] = [];
     for (const f of files) { if (!f.type.startsWith("image/") || f.size > 15e6) continue; ni.push({ id: newId("img"), name: f.name, dataUrl: await readFileAsDataURL(f) }); }
-    setImages((p) => { const m = [...p, ...ni]; if (!activeImageId && m.length) { setActiveImageId(m[0].id); setBgMode("image"); } return m; });
-  }, [activeImageId]);
+    if (ni.length === 0) return;
+    setImages((p) => {
+      const m = [...p, ...ni];
+      // ★ FIX: always set first new image as active if none selected
+      setActiveImageId((cur) => cur ?? m[0].id);
+      setBgMode("image");
+      return m;
+    });
+  }, []);
   const removeImage = useCallback((id: string) => { setImages((p) => { const f = p.filter((i) => i.id !== id); if (activeImageId === id) setActiveImageId(f[0]?.id ?? null); return f; }); }, [activeImageId]);
   const cycleImage = useCallback((dir: 1 | -1) => { setImages((p) => { if (!p.length) return p; const i = p.findIndex((x) => x.id === activeImageId); setActiveImageId(p[(i + dir + p.length) % p.length].id); return p; }); }, [activeImageId]);
 
@@ -175,32 +202,34 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setLayers((p) => [...p, { id, text: "Your text here", fontFamily: "Inter", fontSize: 64, fill: "#ffffff", fontWeight: "bold", fontStyle: "normal", textAlign: "center", left: 540, top: 540, width: 800, opacity: 1, lineHeight: 1.2, charSpacing: 0, effects: { shadow: true, stroke: false, glow: false, gradient: false }, strokeColor: "#000000", strokeWidth: 2, ...partial }]);
     setActiveLayerId(id); setActiveSvgIdState(null); return id;
   }, []);
-  const updateLayer = useCallback((id: string, u: Partial<TextLayer>) => { setLayers((p) => p.map((l) => (l.id === id ? { ...l, ...u, effects: { ...l.effects, ...(u.effects ?? {}) } } : l))); }, []);
+
+  // ★ FIX: updateLayer with safe effects merge — prevents crash
+  const updateLayer = useCallback((id: string, u: Partial<TextLayer>) => {
+    setLayers((p) => p.map((l) => {
+      if (l.id !== id) return l;
+      const merged = { ...l, ...u };
+      // Safe effects merge
+      merged.effects = { ...(l.effects ?? { shadow: false, stroke: false, glow: false, gradient: false }), ...(u.effects ?? {}) };
+      return merged;
+    }));
+  }, []);
+
   const removeLayer = useCallback((id: string) => { setLayers((p) => p.filter((l) => l.id !== id)); setActiveLayerId((c) => c === id ? null : c); }, []);
   const applyTemplate = useCallback((tl: Omit<TextLayer, "id">[]) => { const w = tl.map((l) => ({ ...l, id: newId("layer") })); setLayers(w); setActiveLayerId(w[0]?.id ?? null); }, []);
 
   // SVG on canvas
   const addSvgElement = useCallback((svgContent: string, name: string): string => {
-    const id = newId("svg");
-    const cleaned = cleanSvg(svgContent);
-    const dims = getSvgDimensions(cleaned);
-    const maxDim = Math.max(dims.width, dims.height);
-    const scale = maxDim > 300 ? 300 / maxDim : 1;
+    const id = newId("svg"); const cleaned = cleanSvg(svgContent);
+    const dims = getSvgDimensions(cleaned); const maxDim = Math.max(dims.width, dims.height); const scale = maxDim > 300 ? 300 / maxDim : 1;
     setSvgElements((p) => [...p, { id, name, svgContent: cleaned, left: 540, top: 540, width: Math.round(dims.width * scale), height: Math.round(dims.height * scale), angle: 0, opacity: 1, fill: null }]);
     setActiveSvgIdState(id); setActiveLayerId(null); return id;
   }, []);
 
-  const addSvgFromLibrary = useCallback((libraryId: string) => {
-    const item = svgLibrary.find((i) => i.id === libraryId);
-    if (!item) return;
-    addSvgElement(item.svgContent, item.name);
-  }, [svgLibrary, addSvgElement]);
-
+  const addSvgFromLibrary = useCallback((libraryId: string) => { const item = svgLibrary.find((i) => i.id === libraryId); if (item) addSvgElement(item.svgContent, item.name); }, [svgLibrary, addSvgElement]);
   const updateSvgElement = useCallback((id: string, u: Partial<SvgElement>) => { setSvgElements((p) => p.map((e) => (e.id === id ? { ...e, ...u } : e))); }, []);
   const removeSvgElement = useCallback((id: string) => { setSvgElements((p) => p.filter((e) => e.id !== id)); setActiveSvgIdState((c) => c === id ? null : c); }, []);
   const setActiveSvgId = useCallback((id: string | null) => { setActiveSvgIdState(id); if (id) setActiveLayerId(null); }, []);
   const duplicateSvgElement = useCallback((id: string) => { setSvgElements((p) => { const e = p.find((x) => x.id === id); if (!e) return p; return [...p, { ...e, id: newId("svg"), left: e.left + 30, top: e.top + 30 }]; }); }, []);
-
   const setActiveLayer = useCallback((id: string | null) => { setActiveLayerId(id); if (id) setActiveSvgIdState(null); }, []);
 
   // CSV
@@ -218,8 +247,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const updateGeneratedPage = useCallback((id: string, u: Partial<GeneratedPage>) => setGenerated((p) => p.map((x) => (x.id === id ? { ...x, ...u } : x))), []);
 
   const getEditorSnapshot = useCallback((): PageSnapshot => ({
-    layers: layers.map((l) => ({ ...l, effects: { ...l.effects } })),
-    svgElements: svgElements.map((e) => ({ ...e })),
+    layers: cloneLayers(layers), svgElements: svgElements.map((e) => ({ ...e })),
     imageId: activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay,
   }), [layers, svgElements, activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay]);
 
@@ -227,7 +255,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setGenerated((prev) => {
       const page = prev.find((p) => p.id === id); if (!page) return prev;
       const s = page.snapshot;
-      setLayers(s.layers.map((l) => ({ ...l, effects: { ...l.effects } })));
+      setLayers(cloneLayers(s.layers));
       setSvgElements((s.svgElements ?? []).map((e) => ({ ...e })));
       setActiveImageId(s.imageId); setBgMode(s.bgMode); setBgColor(s.bgColor);
       setGradientFrom(s.gradientFrom); setGradientTo(s.gradientTo); setOverlay(s.overlay);
