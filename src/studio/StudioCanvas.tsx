@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import * as fabric from "fabric";
 import { useStudio } from "./store";
 import { applyBackground, applySvgFillOverride, svgToDataUrl } from "./canvasRenderer";
@@ -47,7 +47,7 @@ function buildFabricShadow(layer: { effects: { shadow: boolean; glow: boolean };
   return null;
 }
 
-// Alignment guides — LIGHT BLUE
+// Alignment guides
 const SNAP_THRESHOLD = 8;
 const GUIDE_COLOR = "#38bdf8";
 const GUIDE_WIDTH = 1.5;
@@ -72,18 +72,13 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
   clearGuideLines(canvas);
   const cw = canvas.getWidth(), ch = canvas.getHeight();
   const bound = obj.getBoundingRect();
-  const objCenterX = bound.left + bound.width / 2;
-  const objCenterY = bound.top + bound.height / 2;
-  const objLeft = bound.left, objRight = bound.left + bound.width;
-  const objTop = bound.top, objBottom = bound.top + bound.height;
+  const cx = bound.left + bound.width / 2, cy = bound.top + bound.height / 2;
+  const l = bound.left, r = bound.left + bound.width, t = bound.top, b = bound.top + bound.height;
 
   const targets: { val: number; guide: number; axis: "x" | "y" }[] = [
-    { val: objCenterX, guide: cw / 2, axis: "x" },
-    { val: objCenterY, guide: ch / 2, axis: "y" },
-    { val: objLeft, guide: 0, axis: "x" },
-    { val: objRight, guide: cw, axis: "x" },
-    { val: objTop, guide: 0, axis: "y" },
-    { val: objBottom, guide: ch, axis: "y" },
+    { val: cx, guide: cw / 2, axis: "x" }, { val: cy, guide: ch / 2, axis: "y" },
+    { val: l, guide: 0, axis: "x" }, { val: r, guide: cw, axis: "x" },
+    { val: t, guide: 0, axis: "y" }, { val: b, guide: ch, axis: "y" },
   ];
 
   canvas.getObjects().forEach((other) => {
@@ -93,26 +88,21 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
     const ob = other.getBoundingRect();
     const ocx = ob.left + ob.width / 2, ocy = ob.top + ob.height / 2;
     targets.push(
-      { val: objCenterX, guide: ocx, axis: "x" },
-      { val: objCenterY, guide: ocy, axis: "y" },
-      { val: objLeft, guide: ob.left, axis: "x" },
-      { val: objRight, guide: ob.left + ob.width, axis: "x" },
-      { val: objTop, guide: ob.top, axis: "y" },
-      { val: objBottom, guide: ob.top + ob.height, axis: "y" },
-      { val: objLeft, guide: ob.left + ob.width, axis: "x" },
-      { val: objRight, guide: ob.left, axis: "x" },
+      { val: cx, guide: ocx, axis: "x" }, { val: cy, guide: ocy, axis: "y" },
+      { val: l, guide: ob.left, axis: "x" }, { val: r, guide: ob.left + ob.width, axis: "x" },
+      { val: t, guide: ob.top, axis: "y" }, { val: b, guide: ob.top + ob.height, axis: "y" },
     );
   });
 
   let snapX: number | null = null, snapY: number | null = null;
-  for (const t of targets) {
-    if (Math.abs(t.val - t.guide) < SNAP_THRESHOLD) {
-      if (t.axis === "x" && snapX === null) {
-        obj.set("left", (obj.left ?? 0) + (t.guide - t.val));
-        snapX = t.guide; showGuide(canvas, "v", t.guide);
-      } else if (t.axis === "y" && snapY === null) {
-        obj.set("top", (obj.top ?? 0) + (t.guide - t.val));
-        snapY = t.guide; showGuide(canvas, "h", t.guide);
+  for (const tgt of targets) {
+    if (Math.abs(tgt.val - tgt.guide) < SNAP_THRESHOLD) {
+      if (tgt.axis === "x" && snapX === null) {
+        obj.set("left", (obj.left ?? 0) + (tgt.guide - tgt.val));
+        snapX = tgt.guide; showGuide(canvas, "v", tgt.guide);
+      } else if (tgt.axis === "y" && snapY === null) {
+        obj.set("top", (obj.top ?? 0) + (tgt.guide - tgt.val));
+        snapY = tgt.guide; showGuide(canvas, "h", tgt.guide);
       }
     }
   }
@@ -127,10 +117,18 @@ export function StudioCanvas() {
   const studioRef = useRef(studio);
   studioRef.current = studio;
 
+  // ★ FIX: One-shot scroll reset (only after dblclick), NOT a continuous listener
+  const resetScrollOnce = useCallback(() => {
+    requestAnimationFrame(() => {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      wrapperRef.current?.scrollTo(0, 0);
+    });
+  }, []);
+
   useEffect(() => {
     if (!canvasElRef.current) return;
 
-    // Set selection style — light blue, more visible (wrapped in try-catch for safety)
     try {
       fabric.Object.prototype.set({
         borderColor: GUIDE_COLOR,
@@ -141,7 +139,7 @@ export function StudioCanvas() {
         transparentCorners: false,
         borderScaleFactor: 2,
       });
-    } catch { /* fabric version may not support all properties */ }
+    } catch {}
 
     const c = new fabric.Canvas(canvasElRef.current, { preserveObjectStacking: true, backgroundColor: "#1a1a2e" });
     fabricRef.current = c; activeFabricCanvas = c;
@@ -172,19 +170,16 @@ export function StudioCanvas() {
       const layerId = (target as fabric.Object & { data?: { layerId?: string } })?.data?.layerId;
       if (!target || !layerId || !(target instanceof fabric.Textbox)) return;
       studioRef.current.setActiveLayer(layerId); target.enterEditing(); target.hiddenTextarea?.focus();
-      requestAnimationFrame(() => { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; wrapperRef.current?.scrollTo(0, 0); });
+      // ★ FIX: one-shot reset only after dblclick — no continuous listener
+      resetScrollOnce();
     });
 
     return () => { activeFabricCanvas = null; c.dispose(); fabricRef.current = null; };
-  }, []);
+  }, [resetScrollOnce]);
 
-  // Scroll prevention
-  useEffect(() => {
-    const w = wrapperRef.current; if (!w) return;
-    const ps = () => { w.scrollTop = 0; w.scrollLeft = 0; }; w.addEventListener("scroll", ps);
-    const pds = () => { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; }; document.addEventListener("scroll", pds);
-    return () => { w.removeEventListener("scroll", ps); document.removeEventListener("scroll", pds); };
-  }, []);
+  // ★ FIX: REMOVED the continuous scroll listener that caused UI dance.
+  // overflow:clip on the wrapper div handles scroll prevention via CSS.
+  // No JS scroll listeners needed.
 
   // Resize
   useEffect(() => {
@@ -210,6 +205,7 @@ export function StudioCanvas() {
         else if (studio.overlay === "vignette") ov = new fabric.Rect({ left: 0, top: 0, width: w, height: h, fill: new fabric.Gradient({ type: "radial", coords: { x1: w / 2, y1: h / 2, r1: Math.min(w, h) * 0.3, x2: w / 2, y2: h / 2, r2: Math.max(w, h) * 0.7 }, colorStops: [{ offset: 0, color: "rgba(0,0,0,0)" }, { offset: 1, color: "rgba(0,0,0,0.7)" }] }), selectable: false, evented: false });
         if (ov) c.add(ov);
       }
+      // Re-order layers
       const svgObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { svgId?: string } }).data?.svgId);
       const textObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
       const bgObjs = c.getObjects().filter((o) => { const d = (o as fabric.Object & { data?: { layerId?: string; svgId?: string } }).data; return !d?.layerId && !d?.svgId; });
@@ -219,7 +215,7 @@ export function StudioCanvas() {
     return () => { cancelled = true; };
   }, [studio.images, studio.activeImageId, studio.overlay, studio.bgMode, studio.bgColor, studio.gradientFrom, studio.gradientTo]);
 
-  // Sync SVG elements — fixed duplicate on color change
+  // Sync SVG elements
   useEffect(() => {
     const c = fabricRef.current; if (!c) return;
     const existing = new Map<string, fabric.FabricImage>();
@@ -243,9 +239,7 @@ export function StudioCanvas() {
             if (isCancelled) return;
             newImg.set("data", { svgId: el.id });
             (newImg as any)._appliedFill = targetFill;
-            c.add(newImg);
-            img = newImg;
-            existing.set(el.id, newImg);
+            c.add(newImg); img = newImg; existing.set(el.id, newImg);
           } catch (err) { console.warn("SVG load fail:", el.name, err); continue; }
         }
         const sx = el.width / (img!.width || 1), sy = el.height / (img!.height || 1);
@@ -260,7 +254,7 @@ export function StudioCanvas() {
     return () => { isCancelled = true; };
   }, [studio.svgElements]);
 
-  // Sync text layers — font re-render fix
+  // Sync text layers
   useEffect(() => {
     const c = fabricRef.current; if (!c) return;
     const existing = new Map<string, fabric.Textbox>();
@@ -273,13 +267,11 @@ export function StudioCanvas() {
       for (const layer of studio.layers) {
         await ensureFontReady(layer.fontFamily);
         if (cancelled) return;
-
         let tb = existing.get(layer.id); const isNew = !tb;
         if (!tb) { tb = new fabric.Textbox(layer.text, { left: layer.left, top: layer.top, width: layer.width, originX: "center", originY: "center" }); tb.set("data", { layerId: layer.id }); c.add(tb); }
         if ((tb as fabric.Textbox & { isEditing?: boolean }).isEditing) continue;
         const displayText = previewSubstitute(layer.text, studio.previewRow, studio.fieldMapping);
         if (tb.text !== displayText) tb.set({ text: displayText });
-
         const prevFont = tb.fontFamily;
         tb.set({
           fontFamily: layer.fontFamily, fontSize: layer.fontSize, fill: layer.fill,
@@ -290,10 +282,7 @@ export function StudioCanvas() {
           stroke: layer.effects?.stroke ? layer.strokeColor : undefined,
           strokeWidth: layer.effects?.stroke ? layer.strokeWidth : 0, paintFirst: "stroke",
         });
-        if (prevFont !== layer.fontFamily) {
-          tb.set("dirty", true);
-          tb.initDimensions();
-        }
+        if (prevFont !== layer.fontFamily) { tb.set("dirty", true); tb.initDimensions(); }
         if (isNew) tb.styles = layer.styles ? JSON.parse(JSON.stringify(layer.styles)) : {};
         tb.setCoords();
       }
@@ -310,7 +299,7 @@ export function StudioCanvas() {
   // Select all
   useEffect(() => { if (!studio.selectAllNonce) return; const c = fabricRef.current; if (!c) return; const all = c.getObjects().filter((o) => { const d = (o as fabric.Object & { data?: { layerId?: string; svgId?: string } }).data; return d?.layerId || d?.svgId; }); if (!all.length) return; c.discardActiveObject(); if (all.length === 1) c.setActiveObject(all[0]); else c.setActiveObject(new fabric.ActiveSelection(all, { canvas: c })); c.requestRenderAll(); }, [studio.selectAllNonce]);
 
-  // Keyboard — delete works for both text layers and SVG
+  // Keyboard
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return;
@@ -332,7 +321,11 @@ export function StudioCanvas() {
   }, []);
 
   return (
-    <div ref={wrapperRef} className="flex-1 flex items-center justify-center bg-background relative" style={{ overflow: "clip" }}>
+    <div
+      ref={wrapperRef}
+      className="flex-1 flex items-center justify-center bg-background relative"
+      style={{ overflow: "clip" }}
+    >
       <div className="absolute inset-0 opacity-30 pointer-events-none" style={{ backgroundImage: "linear-gradient(45deg, oklch(0.2 0.02 280) 25%, transparent 25%), linear-gradient(-45deg, oklch(0.2 0.02 280) 25%, transparent 25%)", backgroundSize: "24px 24px" }} />
       <div className="relative" style={{ width: studio.canvasPreset.width * displayScale, height: studio.canvasPreset.height * displayScale, overflow: "clip" }}>
         <div className="shadow-panel rounded-lg ring-1 ring-border absolute top-0 left-0" style={{ width: studio.canvasPreset.width, height: studio.canvasPreset.height, transform: `scale(${displayScale})`, transformOrigin: "top left", overflow: "clip" }}>

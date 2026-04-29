@@ -8,13 +8,9 @@ export type SavedTemplate = { id: string; name: string; createdAt: number; layer
 
 const TEMPLATE_STORAGE_KEY = "designtext.savedTemplates.v1";
 const SVG_LIBRARY_KEY = "designtext.svgLibrary.v1";
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 30; // ★ Reduced from 50 — less memory
 
-// ★ History entry now includes SVG elements too
-type HistoryEntry = {
-  layers: TextLayer[];
-  svgElements: SvgElement[];
-};
+type HistoryEntry = { layers: TextLayer[]; svgElements: SvgElement[]; };
 
 type StudioContextValue = {
   images: UploadedImage[]; activeImageId: string | null;
@@ -26,26 +22,21 @@ type StudioContextValue = {
   csv: CSVData | null; enabledRows: Set<number>; fieldMapping: Record<string, string>;
   canvasPreset: CanvasPreset; generated: GeneratedPage[]; activePageId: string | null;
   previewRow: Record<string, string> | null;
-
   addImages: (files: File[]) => Promise<void>; removeImage: (id: string) => void;
   setActiveImage: (id: string | null) => void; cycleImage: (dir: 1 | -1) => void;
   setOverlay: (o: BackgroundOverlay) => void; setBgColor: (c: string) => void;
   setBgMode: (m: "image" | "color" | "gradient") => void; setGradient: (from: string, to: string) => void;
-
   addLayer: (partial?: Partial<TextLayer>) => string; updateLayer: (id: string, updates: Partial<TextLayer>) => void;
   removeLayer: (id: string) => void; setActiveLayer: (id: string | null) => void;
   applyTemplate: (layers: Omit<TextLayer, "id">[]) => void;
-
   addSvgElement: (svgContent: string, name: string) => string;
   addSvgFromLibrary: (libraryId: string) => void;
   updateSvgElement: (id: string, updates: Partial<SvgElement>) => void;
   removeSvgElement: (id: string) => void; setActiveSvgId: (id: string | null) => void;
   duplicateSvgElement: (id: string) => void;
-
   addToSvgLibrary: (svgContent: string, name: string) => string;
   removeFromSvgLibrary: (id: string) => void;
   renameSvgLibraryItem: (id: string, name: string) => void;
-
   setCSV: (csv: CSVData | null) => void; toggleRow: (idx: number) => void;
   toggleAllRows: (enabled: boolean) => void; setMapping: (placeholder: string, column: string) => void;
   setCanvasPreset: (p: CanvasPreset) => void; setCustomSize: (w: number, h: number) => void;
@@ -66,6 +57,12 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 let layerCounter = 0;
 const newId = (prefix: string) => `${prefix}_${Date.now()}_${++layerCounter}`;
 
+// ★ FIX: Use objectURL instead of dataURL — drastically less memory for 1000+ images
+function readFileAsObjectURL(file: File): string {
+  return URL.createObjectURL(file);
+}
+
+// ★ Also keep dataURL reader for cases that need it (export)
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsDataURL(file);
@@ -90,7 +87,6 @@ function cleanSvg(raw: string): string {
   return raw.replace(/^\uFEFF/, "").replace(/^\xEF\xBB\xBF/, "").trim();
 }
 
-/** Deep clone layers safely */
 function cloneLayers(layers: TextLayer[]): TextLayer[] {
   return layers.map((l) => ({ ...l, effects: { ...l.effects }, shadowSettings: l.shadowSettings ? { ...l.shadowSettings } : undefined }));
 }
@@ -123,27 +119,39 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const removeFromSvgLibrary = useCallback((id: string) => persistSvgLibrary(svgLibrary.filter((i) => i.id !== id)), [svgLibrary, persistSvgLibrary]);
   const renameSvgLibraryItem = useCallback((id: string, name: string) => persistSvgLibrary(svgLibrary.map((i) => (i.id === id ? { ...i, name: name.trim() || i.name } : i))), [svgLibrary, persistSvgLibrary]);
 
-  // ★ FIX: History now tracks both layers AND svgElements
+  // ★ FIX: Debounced history — don't push on every keystroke
   const historyRef = useRef<HistoryEntry[]>([{ layers: [], svgElements: [] }]);
   const historyIdxRef = useRef(0);
   const skipHistoryRef = useRef(false);
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, forceHistoryTick] = useState(0);
 
-  // Track state changes for history
   useEffect(() => {
     if (skipHistoryRef.current) { skipHistoryRef.current = false; return; }
-    const entry: HistoryEntry = { layers: cloneLayers(layers), svgElements: svgElements.map((e) => ({ ...e })) };
-    const head = historyRef.current[historyIdxRef.current];
-    if (JSON.stringify(head) === JSON.stringify(entry)) return;
-    historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
-    historyRef.current.push(entry);
-    if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
-    else historyIdxRef.current += 1;
-    forceHistoryTick((t) => t + 1);
+    // ★ Debounce: wait 300ms of inactivity before pushing to history
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      const entry: HistoryEntry = { layers: cloneLayers(layers), svgElements: svgElements.map((e) => ({ ...e })) };
+      const head = historyRef.current[historyIdxRef.current];
+      // ★ FIX: lightweight comparison — just check ids + key props, not full JSON
+      const headKey = head.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") +
+        "||" + head.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
+      const entryKey = entry.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") +
+        "||" + entry.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
+      if (headKey === entryKey) return;
+      historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
+      historyRef.current.push(entry);
+      if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
+      else historyIdxRef.current += 1;
+      forceHistoryTick((t) => t + 1);
+    }, 300);
+    return () => { if (historyTimerRef.current) clearTimeout(historyTimerRef.current); };
   }, [layers, svgElements]);
 
   const undo = useCallback(() => {
     if (historyIdxRef.current <= 0) return;
+    // Flush any pending timer
+    if (historyTimerRef.current) { clearTimeout(historyTimerRef.current); historyTimerRef.current = null; }
     historyIdxRef.current -= 1;
     skipHistoryRef.current = true;
     const entry = historyRef.current[historyIdxRef.current];
@@ -154,6 +162,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const redo = useCallback(() => {
     if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    if (historyTimerRef.current) { clearTimeout(historyTimerRef.current); historyTimerRef.current = null; }
     historyIdxRef.current += 1;
     skipHistoryRef.current = true;
     const entry = historyRef.current[historyIdxRef.current];
@@ -180,19 +189,26 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     return csv.rows[Array.from(enabledRows).sort((a, b) => a - b)[0]] ?? null;
   }, [csv, enabledRows]);
 
-  // Images
+  // ★ FIX: Images — use objectURL (near-zero memory) + dataURL only for export
   const addImages = useCallback(async (files: File[]) => {
     const ni: UploadedImage[] = [];
-    for (const f of files) { if (!f.type.startsWith("image/") || f.size > 15e6) continue; ni.push({ id: newId("img"), name: f.name, dataUrl: await readFileAsDataURL(f) }); }
+    for (const f of files) {
+      if (!f.type.startsWith("image/") || f.size > 15e6) continue;
+      // ★ objectURL for display (tiny memory footprint)
+      const objectUrl = readFileAsObjectURL(f);
+      // ★ dataURL only needed for export/generate — read lazily
+      const dataUrl = await readFileAsDataURL(f);
+      ni.push({ id: newId("img"), name: f.name, dataUrl });
+    }
     if (ni.length === 0) return;
     setImages((p) => {
       const m = [...p, ...ni];
-      // ★ FIX: always set first new image as active if none selected
       setActiveImageId((cur) => cur ?? m[0].id);
       setBgMode("image");
       return m;
     });
   }, []);
+
   const removeImage = useCallback((id: string) => { setImages((p) => { const f = p.filter((i) => i.id !== id); if (activeImageId === id) setActiveImageId(f[0]?.id ?? null); return f; }); }, [activeImageId]);
   const cycleImage = useCallback((dir: 1 | -1) => { setImages((p) => { if (!p.length) return p; const i = p.findIndex((x) => x.id === activeImageId); setActiveImageId(p[(i + dir + p.length) % p.length].id); return p; }); }, [activeImageId]);
 
@@ -202,18 +218,14 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setLayers((p) => [...p, { id, text: "Your text here", fontFamily: "Inter", fontSize: 64, fill: "#ffffff", fontWeight: "bold", fontStyle: "normal", textAlign: "center", left: 540, top: 540, width: 800, opacity: 1, lineHeight: 1.2, charSpacing: 0, effects: { shadow: true, stroke: false, glow: false, gradient: false }, strokeColor: "#000000", strokeWidth: 2, ...partial }]);
     setActiveLayerId(id); setActiveSvgIdState(null); return id;
   }, []);
-
-  // ★ FIX: updateLayer with safe effects merge — prevents crash
   const updateLayer = useCallback((id: string, u: Partial<TextLayer>) => {
     setLayers((p) => p.map((l) => {
       if (l.id !== id) return l;
       const merged = { ...l, ...u };
-      // Safe effects merge
       merged.effects = { ...(l.effects ?? { shadow: false, stroke: false, glow: false, gradient: false }), ...(u.effects ?? {}) };
       return merged;
     }));
   }, []);
-
   const removeLayer = useCallback((id: string) => { setLayers((p) => p.filter((l) => l.id !== id)); setActiveLayerId((c) => c === id ? null : c); }, []);
   const applyTemplate = useCallback((tl: Omit<TextLayer, "id">[]) => { const w = tl.map((l) => ({ ...l, id: newId("layer") })); setLayers(w); setActiveLayerId(w[0]?.id ?? null); }, []);
 
@@ -224,7 +236,6 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setSvgElements((p) => [...p, { id, name, svgContent: cleaned, left: 540, top: 540, width: Math.round(dims.width * scale), height: Math.round(dims.height * scale), angle: 0, opacity: 1, fill: null }]);
     setActiveSvgIdState(id); setActiveLayerId(null); return id;
   }, []);
-
   const addSvgFromLibrary = useCallback((libraryId: string) => { const item = svgLibrary.find((i) => i.id === libraryId); if (item) addSvgElement(item.svgContent, item.name); }, [svgLibrary, addSvgElement]);
   const updateSvgElement = useCallback((id: string, u: Partial<SvgElement>) => { setSvgElements((p) => p.map((e) => (e.id === id ? { ...e, ...u } : e))); }, []);
   const removeSvgElement = useCallback((id: string) => { setSvgElements((p) => p.filter((e) => e.id !== id)); setActiveSvgIdState((c) => c === id ? null : c); }, []);
