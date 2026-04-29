@@ -8,7 +8,7 @@ export type SavedTemplate = { id: string; name: string; createdAt: number; layer
 
 const TEMPLATE_STORAGE_KEY = "designtext.savedTemplates.v1";
 const SVG_LIBRARY_KEY = "designtext.svgLibrary.v1";
-const HISTORY_LIMIT = 30; // ★ Reduced from 50 — less memory
+const HISTORY_LIMIT = 30;
 
 type HistoryEntry = { layers: TextLayer[]; svgElements: SvgElement[]; };
 
@@ -22,6 +22,8 @@ type StudioContextValue = {
   csv: CSVData | null; enabledRows: Set<number>; fieldMapping: Record<string, string>;
   canvasPreset: CanvasPreset; generated: GeneratedPage[]; activePageId: string | null;
   previewRow: Record<string, string> | null;
+  // ★ NEW: flag — are we editing a generated page or the template?
+  isEditingPage: boolean;
   addImages: (files: File[]) => Promise<void>; removeImage: (id: string) => void;
   setActiveImage: (id: string | null) => void; cycleImage: (dir: 1 | -1) => void;
   setOverlay: (o: BackgroundOverlay) => void; setBgColor: (c: string) => void;
@@ -44,6 +46,8 @@ type StudioContextValue = {
   removeGeneratedPage: (id: string) => void; duplicateGeneratedPage: (id: string) => void;
   updateGeneratedPage: (id: string, updates: Partial<GeneratedPage>) => void;
   setActivePage: (id: string | null) => void; loadPageIntoEditor: (id: string) => void;
+  // ★ NEW: go back to template editing mode
+  returnToTemplate: () => void;
   getEditorSnapshot: () => PageSnapshot; insertTextIntoActiveLayer: (insert: string) => void;
   clearGenerated: () => void;
   undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean;
@@ -57,12 +61,6 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 let layerCounter = 0;
 const newId = (prefix: string) => `${prefix}_${Date.now()}_${++layerCounter}`;
 
-// ★ FIX: Use objectURL instead of dataURL — drastically less memory for 1000+ images
-function readFileAsObjectURL(file: File): string {
-  return URL.createObjectURL(file);
-}
-
-// ★ Also keep dataURL reader for cases that need it (export)
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsDataURL(file);
@@ -91,6 +89,18 @@ function cloneLayers(layers: TextLayer[]): TextLayer[] {
   return layers.map((l) => ({ ...l, effects: { ...l.effects }, shadowSettings: l.shadowSettings ? { ...l.shadowSettings } : undefined }));
 }
 
+// ★ Store template state so we can restore it after page editing
+type TemplateBackup = {
+  layers: TextLayer[];
+  svgElements: SvgElement[];
+  imageId: string | null;
+  bgMode: "image" | "color" | "gradient";
+  bgColor: string;
+  gradientFrom: string;
+  gradientTo: string;
+  overlay: BackgroundOverlay;
+};
+
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
@@ -110,6 +120,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [generated, setGenerated] = useState<GeneratedPage[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
 
+  // ★ NEW: backup of template state before switching to page editing
+  const templateBackupRef = useRef<TemplateBackup | null>(null);
+
+  // Is user editing a specific generated page?
+  const isEditingPage = activePageId !== null;
+
   // SVG Library
   const [svgLibrary, setSvgLibrary] = useState<SvgLibraryItem[]>(() => {
     try { const raw = localStorage.getItem(SVG_LIBRARY_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
@@ -119,7 +135,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const removeFromSvgLibrary = useCallback((id: string) => persistSvgLibrary(svgLibrary.filter((i) => i.id !== id)), [svgLibrary, persistSvgLibrary]);
   const renameSvgLibraryItem = useCallback((id: string, name: string) => persistSvgLibrary(svgLibrary.map((i) => (i.id === id ? { ...i, name: name.trim() || i.name } : i))), [svgLibrary, persistSvgLibrary]);
 
-  // ★ FIX: Debounced history — don't push on every keystroke
+  // History (debounced)
   const historyRef = useRef<HistoryEntry[]>([{ layers: [], svgElements: [] }]);
   const historyIdxRef = useRef(0);
   const skipHistoryRef = useRef(false);
@@ -128,16 +144,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (skipHistoryRef.current) { skipHistoryRef.current = false; return; }
-    // ★ Debounce: wait 300ms of inactivity before pushing to history
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     historyTimerRef.current = setTimeout(() => {
       const entry: HistoryEntry = { layers: cloneLayers(layers), svgElements: svgElements.map((e) => ({ ...e })) };
       const head = historyRef.current[historyIdxRef.current];
-      // ★ FIX: lightweight comparison — just check ids + key props, not full JSON
-      const headKey = head.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") +
-        "||" + head.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
-      const entryKey = entry.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") +
-        "||" + entry.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
+      const headKey = head.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") + "||" + head.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
+      const entryKey = entry.layers.map((l) => `${l.id}:${l.text}:${l.fontFamily}:${l.left}:${l.top}`).join("|") + "||" + entry.svgElements.map((e) => `${e.id}:${e.left}:${e.top}:${e.fill}`).join("|");
       if (headKey === entryKey) return;
       historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
       historyRef.current.push(entry);
@@ -150,27 +162,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const undo = useCallback(() => {
     if (historyIdxRef.current <= 0) return;
-    // Flush any pending timer
     if (historyTimerRef.current) { clearTimeout(historyTimerRef.current); historyTimerRef.current = null; }
-    historyIdxRef.current -= 1;
-    skipHistoryRef.current = true;
-    const entry = historyRef.current[historyIdxRef.current];
-    setLayers(cloneLayers(entry.layers));
-    setSvgElements(entry.svgElements.map((e) => ({ ...e })));
+    historyIdxRef.current -= 1; skipHistoryRef.current = true;
+    const e = historyRef.current[historyIdxRef.current];
+    setLayers(cloneLayers(e.layers)); setSvgElements(e.svgElements.map((x) => ({ ...x })));
     forceHistoryTick((t) => t + 1);
   }, []);
-
   const redo = useCallback(() => {
     if (historyIdxRef.current >= historyRef.current.length - 1) return;
     if (historyTimerRef.current) { clearTimeout(historyTimerRef.current); historyTimerRef.current = null; }
-    historyIdxRef.current += 1;
-    skipHistoryRef.current = true;
-    const entry = historyRef.current[historyIdxRef.current];
-    setLayers(cloneLayers(entry.layers));
-    setSvgElements(entry.svgElements.map((e) => ({ ...e })));
+    historyIdxRef.current += 1; skipHistoryRef.current = true;
+    const e = historyRef.current[historyIdxRef.current];
+    setLayers(cloneLayers(e.layers)); setSvgElements(e.svgElements.map((x) => ({ ...x })));
     forceHistoryTick((t) => t + 1);
   }, []);
-
   const canUndo = historyIdxRef.current > 0;
   const canRedo = historyIdxRef.current < historyRef.current.length - 1;
 
@@ -184,31 +189,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [selectAllNonce, setSelectAllNonce] = useState(0);
   const selectAllLayers = useCallback(() => setSelectAllNonce((n) => n + 1), []);
 
+  // ★ FIX: previewRow only available when NOT editing a specific page
   const previewRow = useMemo<Record<string, string> | null>(() => {
+    if (activePageId) return null; // ★ Don't substitute when editing a generated page
     if (!csv || enabledRows.size === 0) return null;
     return csv.rows[Array.from(enabledRows).sort((a, b) => a - b)[0]] ?? null;
-  }, [csv, enabledRows]);
+  }, [csv, enabledRows, activePageId]);
 
-  // ★ FIX: Images — use objectURL (near-zero memory) + dataURL only for export
+  // Images
   const addImages = useCallback(async (files: File[]) => {
     const ni: UploadedImage[] = [];
-    for (const f of files) {
-      if (!f.type.startsWith("image/") || f.size > 15e6) continue;
-      // ★ objectURL for display (tiny memory footprint)
-      const objectUrl = readFileAsObjectURL(f);
-      // ★ dataURL only needed for export/generate — read lazily
-      const dataUrl = await readFileAsDataURL(f);
-      ni.push({ id: newId("img"), name: f.name, dataUrl });
-    }
+    for (const f of files) { if (!f.type.startsWith("image/") || f.size > 15e6) continue; const dataUrl = await readFileAsDataURL(f); ni.push({ id: newId("img"), name: f.name, dataUrl }); }
     if (ni.length === 0) return;
-    setImages((p) => {
-      const m = [...p, ...ni];
-      setActiveImageId((cur) => cur ?? m[0].id);
-      setBgMode("image");
-      return m;
-    });
+    setImages((p) => { const m = [...p, ...ni]; setActiveImageId((cur) => cur ?? m[0].id); setBgMode("image"); return m; });
   }, []);
-
   const removeImage = useCallback((id: string) => { setImages((p) => { const f = p.filter((i) => i.id !== id); if (activeImageId === id) setActiveImageId(f[0]?.id ?? null); return f; }); }, [activeImageId]);
   const cycleImage = useCallback((dir: 1 | -1) => { setImages((p) => { if (!p.length) return p; const i = p.findIndex((x) => x.id === activeImageId); setActiveImageId(p[(i + dir + p.length) % p.length].id); return p; }); }, [activeImageId]);
 
@@ -243,8 +237,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const duplicateSvgElement = useCallback((id: string) => { setSvgElements((p) => { const e = p.find((x) => x.id === id); if (!e) return p; return [...p, { ...e, id: newId("svg"), left: e.left + 30, top: e.top + 30 }]; }); }, []);
   const setActiveLayer = useCallback((id: string | null) => { setActiveLayerId(id); if (id) setActiveSvgIdState(null); }, []);
 
-  // CSV
-  const setCSV = useCallback((c: CSVData | null) => { setCsvState(c); if (c) { setEnabledRows(new Set(c.rows.map((_, i) => i))); const a: Record<string, string> = {}; c.headers.forEach((h) => { a[h] = h; }); setFieldMapping(a); } else { setEnabledRows(new Set()); setFieldMapping({}); } }, []);
+  // CSV — ★ FIX: CSV operations never touch layers (no disconnect)
+  const setCSV = useCallback((c: CSVData | null) => {
+    setCsvState(c);
+    if (c) {
+      setEnabledRows(new Set(c.rows.map((_, i) => i)));
+      const a: Record<string, string> = {};
+      c.headers.forEach((h) => { a[h] = h; });
+      setFieldMapping(a);
+    } else {
+      setEnabledRows(new Set());
+      setFieldMapping({});
+    }
+    // ★ FIX: Do NOT touch layers or activeLayerId here — that was causing CSV "disconnect"
+  }, []);
   const toggleRow = useCallback((i: number) => { setEnabledRows((p) => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n; }); }, []);
   const toggleAllRows = useCallback((en: boolean) => { setEnabledRows(() => !csv ? new Set() : en ? new Set(csv.rows.map((_, i) => i)) : new Set()); }, [csv]);
   const setMapping = useCallback((p: string, c: string) => setFieldMapping((prev) => ({ ...prev, [p]: c })), []);
@@ -262,18 +268,41 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     imageId: activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay,
   }), [layers, svgElements, activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay]);
 
+  // ★ FIX: loadPageIntoEditor — saves template backup first, then loads page
   const loadPageIntoEditor = useCallback((id: string) => {
-    setGenerated((prev) => {
-      const page = prev.find((p) => p.id === id); if (!page) return prev;
-      const s = page.snapshot;
-      setLayers(cloneLayers(s.layers));
-      setSvgElements((s.svgElements ?? []).map((e) => ({ ...e })));
-      setActiveImageId(s.imageId); setBgMode(s.bgMode); setBgColor(s.bgColor);
-      setGradientFrom(s.gradientFrom); setGradientTo(s.gradientTo); setOverlay(s.overlay);
-      setActiveLayerId(s.layers[0]?.id ?? null); setActiveSvgIdState(null);
-      return prev;
-    });
+    // Save template backup if we're not already editing a page
+    if (!activePageId && !templateBackupRef.current) {
+      templateBackupRef.current = {
+        layers: cloneLayers(layers),
+        svgElements: svgElements.map((e) => ({ ...e })),
+        imageId: activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay,
+      };
+    }
+
+    const page = generated.find((p) => p.id === id);
+    if (!page) return;
+    const s = page.snapshot;
+    setLayers(cloneLayers(s.layers));
+    setSvgElements((s.svgElements ?? []).map((e) => ({ ...e })));
+    setActiveImageId(s.imageId); setBgMode(s.bgMode); setBgColor(s.bgColor);
+    setGradientFrom(s.gradientFrom); setGradientTo(s.gradientTo); setOverlay(s.overlay);
+    setActiveLayerId(s.layers[0]?.id ?? null); setActiveSvgIdState(null);
     setActivePageId(id);
+  }, [activePageId, layers, svgElements, activeImageId, bgMode, bgColor, gradientFrom, gradientTo, overlay, generated]);
+
+  // ★ NEW: Return to template editing mode — restores backup
+  const returnToTemplate = useCallback(() => {
+    if (templateBackupRef.current) {
+      const b = templateBackupRef.current;
+      setLayers(cloneLayers(b.layers));
+      setSvgElements(b.svgElements.map((e) => ({ ...e })));
+      setActiveImageId(b.imageId); setBgMode(b.bgMode); setBgColor(b.bgColor);
+      setGradientFrom(b.gradientFrom); setGradientTo(b.gradientTo); setOverlay(b.overlay);
+      templateBackupRef.current = null;
+    }
+    setActivePageId(null);
+    setActiveLayerId(null);
+    setActiveSvgIdState(null);
   }, []);
 
   const insertTextIntoActiveLayer = useCallback((insert: string) => {
@@ -289,12 +318,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const clearGenerated = useCallback(() => { setGenerated([]); setActivePageId(null); }, []);
+  const clearGenerated = useCallback(() => { setGenerated([]); setActivePageId(null); templateBackupRef.current = null; }, []);
 
   const value = useMemo<StudioContextValue>(() => ({
     images, activeImageId, overlay, bgColor, bgMode, gradientFrom, gradientTo,
     layers, activeLayerId, svgElements, activeSvgId: activeSvgIdState, svgLibrary,
     csv, enabledRows, fieldMapping, canvasPreset, generated, activePageId, previewRow,
+    isEditingPage,
     addImages, removeImage, setActiveImage: setActiveImageId, cycleImage,
     setOverlay, setBgColor, setBgMode, setGradient: (f, t) => { setGradientFrom(f); setGradientTo(t); },
     addLayer, updateLayer, removeLayer, setActiveLayer, applyTemplate,
@@ -302,7 +332,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     addToSvgLibrary, removeFromSvgLibrary, renameSvgLibraryItem,
     setCSV, toggleRow, toggleAllRows, setMapping, setCanvasPreset, setCustomSize,
     setGenerated, addGeneratedPage, removeGeneratedPage, duplicateGeneratedPage,
-    updateGeneratedPage, loadPageIntoEditor, getEditorSnapshot, insertTextIntoActiveLayer,
+    updateGeneratedPage, loadPageIntoEditor, returnToTemplate, getEditorSnapshot, insertTextIntoActiveLayer,
     setActivePage: setActivePageId, clearGenerated,
     undo, redo, canUndo, canRedo,
     savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
@@ -311,12 +341,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     images, activeImageId, overlay, bgColor, bgMode, gradientFrom, gradientTo,
     layers, activeLayerId, svgElements, activeSvgIdState, svgLibrary,
     csv, enabledRows, fieldMapping, canvasPreset, generated, activePageId, previewRow,
+    isEditingPage,
     addImages, removeImage, cycleImage, addLayer, updateLayer, removeLayer, setActiveLayer,
     applyTemplate, addSvgElement, addSvgFromLibrary, updateSvgElement, removeSvgElement, setActiveSvgId, duplicateSvgElement,
     addToSvgLibrary, removeFromSvgLibrary, renameSvgLibraryItem,
     setCSV, toggleRow, toggleAllRows, setMapping, setCanvasPreset, setCustomSize,
     addGeneratedPage, removeGeneratedPage, duplicateGeneratedPage, updateGeneratedPage,
-    loadPageIntoEditor, getEditorSnapshot, insertTextIntoActiveLayer, clearGenerated,
+    loadPageIntoEditor, returnToTemplate, getEditorSnapshot, insertTextIntoActiveLayer, clearGenerated,
     undo, redo, canUndo, canRedo,
     savedTemplates, saveCurrentAsTemplate, deleteSavedTemplate, applySavedTemplate,
     selectAllNonce, selectAllLayers,
