@@ -4,20 +4,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Design system definition.
- *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
- *
- * The :root and .dark blocks define the actual color values using oklch.
- * All colors MUST use oklch format.
- *
- * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
- * 2. Register it in @theme inline as --color-<name>: var(--<name>)
- */
-
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -63,7 +49,6 @@
 
 :root {
   --radius: 0.75rem;
-  /* Canva Dark Pro — deep charcoal, electric violet, cyan accent */
   --background: oklch(0.16 0.02 280);
   --foreground: oklch(0.97 0.01 280);
   --card: oklch(0.21 0.025 280);
@@ -147,20 +132,51 @@
     border-color: var(--color-border);
   }
 
-  html, body, #root {
-     height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
+  /* ★ FIX: Lock the entire page — no scrolling allowed at any level */
+  html {
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden !important;
+    margin: 0;
+    padding: 0;
   }
 
   body {
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden !important;
+    margin: 0;
+    padding: 0;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-font-smoothing: antialiased;
-    overflow: hidden;
+  }
+
+  #root {
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden !important;
+  }
+
+  /* ★ FIX: Fabric.js creates a wrapper div with class "canvas-container"
+     that takes the FULL unscaled size (e.g. 1080x1920).
+     Even though we CSS-transform it down, the DOM element pushes the
+     layout, creating the empty space below.
+     This forces the fabric wrapper to not affect layout flow. */
+  .canvas-container {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+  }
+
+  /* The upper-canvas (selection overlay) and lower-canvas (render)
+     fabric creates must also be absolutely positioned */
+  .upper-canvas,
+  .lower-canvas {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
   }
 
   /* Custom scrollbar */
