@@ -108,6 +108,31 @@ function snapAndGuide(canvas: fabric.Canvas, obj: fabric.Object) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ULTIMATE SCROLL-JUMP FIX
+//
+// Root cause: fabric.js calls hiddenTextarea.focus() from multiple internal
+// methods (enterEditing, _updateTextarea, _forceClearCache…). The browser
+// responds to ANY .focus() call by scrolling the focused element into view,
+// which shifts the whole page up and leaves a blank gap at the bottom.
+//
+// Fix: patch HTMLTextAreaElement.prototype.focus at the module level so that
+// EVERY .focus() call on any textarea always uses { preventScroll: true }.
+// We save the original and restore it when the component unmounts — safe and
+// transparent to everything else on the page.
+// ─────────────────────────────────────────────────────────────────────────────
+const _nativeFocus = HTMLTextAreaElement.prototype.focus;
+
+function patchTextareaFocus() {
+  HTMLTextAreaElement.prototype.focus = function patchedFocus(opts?: FocusOptions) {
+    _nativeFocus.call(this, { ...opts, preventScroll: true });
+  };
+}
+
+function unpatchTextareaFocus() {
+  HTMLTextAreaElement.prototype.focus = _nativeFocus;
+}
+
 export function StudioCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
@@ -117,13 +142,15 @@ export function StudioCanvas() {
   const studioRef = useRef(studio);
   studioRef.current = studio;
 
-  // ★ FIX: One-shot scroll reset (only after dblclick), NOT a continuous listener
-  const resetScrollOnce = useCallback(() => {
-    requestAnimationFrame(() => {
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      wrapperRef.current?.scrollTo(0, 0);
-    });
+  // Install the patch for the lifetime of this component
+  useEffect(() => {
+    patchTextareaFocus();
+    return () => unpatchTextareaFocus();
+  }, []);
+
+  const enterEditingNoScroll = useCallback((target: fabric.Textbox) => {
+    // Patch is active — enterEditing() + any internal .focus() won't scroll
+    target.enterEditing();
   }, []);
 
   useEffect(() => {
@@ -169,17 +196,12 @@ export function StudioCanvas() {
       const target = e.target as fabric.Textbox | undefined;
       const layerId = (target as fabric.Object & { data?: { layerId?: string } })?.data?.layerId;
       if (!target || !layerId || !(target instanceof fabric.Textbox)) return;
-      studioRef.current.setActiveLayer(layerId); target.enterEditing(); target.hiddenTextarea?.focus();
-      // ★ FIX: one-shot reset only after dblclick — no continuous listener
-      resetScrollOnce();
+      studioRef.current.setActiveLayer(layerId);
+      enterEditingNoScroll(target);
     });
 
     return () => { activeFabricCanvas = null; c.dispose(); fabricRef.current = null; };
-  }, [resetScrollOnce]);
-
-  // ★ FIX: REMOVED the continuous scroll listener that caused UI dance.
-  // overflow:clip on the wrapper div handles scroll prevention via CSS.
-  // No JS scroll listeners needed.
+  }, [enterEditingNoScroll]);
 
   // Resize
   useEffect(() => {
@@ -205,7 +227,6 @@ export function StudioCanvas() {
         else if (studio.overlay === "vignette") ov = new fabric.Rect({ left: 0, top: 0, width: w, height: h, fill: new fabric.Gradient({ type: "radial", coords: { x1: w / 2, y1: h / 2, r1: Math.min(w, h) * 0.3, x2: w / 2, y2: h / 2, r2: Math.max(w, h) * 0.7 }, colorStops: [{ offset: 0, color: "rgba(0,0,0,0)" }, { offset: 1, color: "rgba(0,0,0,0.7)" }] }), selectable: false, evented: false });
         if (ov) c.add(ov);
       }
-      // Re-order layers
       const svgObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { svgId?: string } }).data?.svgId);
       const textObjs = c.getObjects().filter((o) => (o as fabric.Object & { data?: { layerId?: string } }).data?.layerId);
       const bgObjs = c.getObjects().filter((o) => { const d = (o as fabric.Object & { data?: { layerId?: string; svgId?: string } }).data; return !d?.layerId && !d?.svgId; });

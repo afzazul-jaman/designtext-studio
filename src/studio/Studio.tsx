@@ -81,28 +81,51 @@ function StudioInner() {
     }
   };
 
-  // ★ FIX: Generate — create PERFECT copies from template
+  // ★ Generate — strict 1:1 zip pairing, no duplicates, no cycling
   const handleGenerate = async () => {
     if (!studio.layers.length && !studio.images.length) { toast.error("Add content first"); return; }
 
-    // ★ If editing a page, return to template first
+    // If editing a page, return to template first
     if (studio.activePageId) {
       await autoSaveCurrentPage();
       studio.returnToTemplate();
-      // Wait a tick for state to settle
       await new Promise((r) => setTimeout(r, 50));
     }
 
     const imgs = [...studio.images];
     const hasCsv = !!studio.csv;
+    // Sorted enabled row indices — each used EXACTLY once
     const ei = hasCsv ? Array.from(studio.enabledRows).sort((a, b) => a - b) : [];
-    if (!hasCsv && imgs.length <= 1) { await handleAddCurrent(); return; }
-    if (hasCsv && !ei.length) { toast.error("No rows selected"); return; }
-    const total = imgs.length > 0
-  ? Math.max(imgs.length, hasCsv ? ei.length : 0)
-  : (hasCsv ? ei.length : 0);
 
-    // ★ CRITICAL: Snapshot the template ONCE — never read studio.layers inside the loop
+    if (!hasCsv && imgs.length === 0) { toast.error("Add content first"); return; }
+    if (hasCsv && ei.length === 0) { toast.error("No rows selected"); return; }
+    if (!hasCsv && imgs.length <= 1) { await handleAddCurrent(); return; }
+
+    // ★ PAIRING RULES (strict, no repeats):
+    // • CSV only (no images):        one page per enabled row
+    // • Images only (no CSV):        one page per image
+    // • Both CSV + Images:           zip 1:1 — total = min(images, rows)
+    //                                leftover images or rows are SKIPPED (no cycling)
+    let pairs: { rowIdx: number | null; imgIdx: number | null }[] = [];
+
+    if (hasCsv && imgs.length === 0) {
+      // CSV only
+      pairs = ei.map((rowIdx) => ({ rowIdx, imgIdx: null }));
+    } else if (!hasCsv && imgs.length > 0) {
+      // Images only
+      pairs = imgs.map((_, imgIdx) => ({ rowIdx: null, imgIdx }));
+    } else {
+      // Both — strict zip, shorter list determines count
+      const count = Math.min(ei.length, imgs.length);
+      if (count === 0) { toast.error("Nothing to generate"); return; }
+      pairs = Array.from({ length: count }, (_, i) => ({ rowIdx: ei[i], imgIdx: i }));
+      const skipped = Math.max(ei.length, imgs.length) - count;
+      if (skipped > 0) toast.info(`${skipped} unmatched ${ei.length > imgs.length ? "rows" : "images"} skipped (no 1:1 pair)`);
+    }
+
+    const total = pairs.length;
+
+    // ★ Snapshot template ONCE before loop
     const templateLayers: TextLayer[] = studio.layers.map((l) => ({
       ...l, effects: { ...l.effects },
       shadowSettings: l.shadowSettings ? { ...l.shadowSettings } : undefined,
@@ -117,13 +140,14 @@ function StudioInner() {
 
     try {
       for (let i = 0; i < total; i++) {
-        // ★ FIX: cycle CSV rows when images > rows
-       const row = hasCsv ? studio.csv!.rows[ei[i % ei.length]] : null;
-        // ★ FIX: each image gets its own page
-        const pi = imgs.length > 0 ? imgs[i % imgs.length] : null;
+        const { rowIdx, imgIdx } = pairs[i];
+        // ★ Each row used exactly once — no modulo, no cycling
+        const row = (hasCsv && rowIdx !== null) ? studio.csv!.rows[rowIdx] : null;
+        // ★ Each image used exactly once — no modulo, no cycling
+        const pi = imgIdx !== null ? imgs[imgIdx] : null;
         const extras: Record<string, string> = pi ? { filename: filenameToTitle(pi.name) } : {};
 
-        // ★ Substitute placeholders in a FRESH clone of template layers
+        // Fresh clone of template layers with substituted text
         const substituted = templateLayers.map((l) => ({
           ...l, effects: { ...l.effects },
           shadowSettings: l.shadowSettings ? { ...l.shadowSettings } : undefined,
@@ -131,11 +155,12 @@ function StudioInner() {
           text: substitutePlaceholders(l.text, row, templateMapping, extras),
         }));
 
-        const useBgMode = imgs.length > 0 ? "image" as const : tBgMode;
+        const useBgMode = pi ? "image" as const : tBgMode;
         const opts = {
           width: studio.canvasPreset.width, height: studio.canvasPreset.height,
           bgMode: useBgMode, bgColor: tBgColor, gradientFrom: tGradFrom, gradientTo: tGradTo,
-          overlay: tOverlay, layers: substituted, backgroundImageUrl: pi?.dataUrl ?? null,
+          overlay: tOverlay, layers: substituted,
+          backgroundImageUrl: pi?.dataUrl ?? null,
           svgElements: templateSvgs,
         };
 
@@ -144,7 +169,7 @@ function StudioInner() {
 
         studio.addGeneratedPage({
           id: `page_${Date.now()}_${i}`,
-          rowIndex: hasCsv ? ei[i] : null,
+          rowIndex: rowIdx,
           thumbnail: thumb, fullDataUrl: url,
           rowData: row ?? undefined,
           snapshot: {
@@ -159,7 +184,7 @@ function StudioInner() {
         setProgress(Math.round(((i + 1) / total) * 100));
         await new Promise((r) => setTimeout(r, 0));
       }
-      toast.success(`Generated ${total} designs — click any page to edit`);
+      toast.success(`Generated ${total} design${total !== 1 ? "s" : ""} — click any page to edit`);
     } catch (err) { console.error(err); toast.error("Failed: " + (err as Error).message); }
     finally { setGenerating(false); setProgress(0); }
   };
