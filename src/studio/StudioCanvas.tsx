@@ -133,6 +133,30 @@ function unpatchTextareaFocus() {
   HTMLTextAreaElement.prototype.focus = _nativeFocus;
 }
 
+// ★ SCROLL JAIL: block ALL scroll on window/document while canvas is mounted.
+// fabric's hiddenTextarea causes a layout reflow that scrolls the page even
+// with preventScroll:true. Capturing scroll at window level and resetting to 0
+// is the only way to stop the visible bounce.
+function installScrollJail(): () => void {
+  const prevent = (e: Event) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+  window.addEventListener("scroll", prevent, { capture: true, passive: false });
+  document.addEventListener("scroll", prevent, { capture: true, passive: false });
+  document.documentElement.addEventListener("scroll", prevent, { capture: true, passive: false });
+  document.body.addEventListener("scroll", prevent, { capture: true, passive: false });
+  return () => {
+    window.removeEventListener("scroll", prevent, { capture: true });
+    document.removeEventListener("scroll", prevent, { capture: true });
+    document.documentElement.removeEventListener("scroll", prevent, { capture: true });
+    document.body.removeEventListener("scroll", prevent, { capture: true });
+  };
+}
+
 export function StudioCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
@@ -142,14 +166,25 @@ export function StudioCanvas() {
   const studioRef = useRef(studio);
   studioRef.current = studio;
 
-  // Install the patch for the lifetime of this component
+  // Install focus patch + scroll jail for the lifetime of this component
   useEffect(() => {
     patchTextareaFocus();
-    return () => unpatchTextareaFocus();
+    const removeScrollJail = installScrollJail();
+    return () => {
+      unpatchTextareaFocus();
+      removeScrollJail();
+    };
   }, []);
 
   const enterEditingNoScroll = useCallback((target: fabric.Textbox) => {
-    // Patch is active — enterEditing() + any internal .focus() won't scroll
+    // Pre-position hiddenTextarea off-screen BEFORE enterEditing creates/focuses it.
+    // fabric will reposition it after, but by then the scroll jail has already blocked any jump.
+    const ta = (target as any).hiddenTextarea as HTMLTextAreaElement | undefined;
+    if (ta) {
+      ta.style.position = "fixed";
+      ta.style.top = "0px";
+      ta.style.left = "-9999px";
+    }
     target.enterEditing();
   }, []);
 
